@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import ContractSetup from '../components/ContractSetup';
 import FamilyPayments from '../components/FamilyPayments';
+import { AsaasBadge } from '../components/ui';
 import { FamilyHeaderContext } from '../contexts/FamilyHeaderContext';
 import { getFamilyDetail, getPaymentPlans, getSignedContractFile, setEnrollmentPaymentPlan, setFamilyBilling } from '../services/data';
 import { date as formatDate, dateTime, money } from '../lib/format';
@@ -297,7 +298,7 @@ export default function FamilyDetail() {
           <div className="avatar avatar--lg">{initials(guardian.full_name)}</div>
           <div>
             <span className="stage-pill" style={{ '--accent': stage.color }}><i />{stage.label}</span>
-            <h2>{guardian.full_name}</h2>
+            <h2>{guardian.full_name}<AsaasBadge customerId={guardian.asaas_customer_id} /></h2>
             <span className="meta">{formatPhoneView(guardian.phone)} · {guardian.email || 'sem e-mail'} · CPF {formatCpfView(guardian.cpf)}</span>
           </div>
         </div>

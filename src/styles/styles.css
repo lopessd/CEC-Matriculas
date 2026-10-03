@@ -1387,3 +1387,9 @@ a:hover { color: var(--navy); }
   .fd-student { grid-template-columns: auto minmax(0, 1fr) auto; }
   .fd-student-flags { grid-column: 2 / -1; justify-content: flex-start; }
 }
+
+/* Cliente no Asaas: etiqueta ao lado do nome do responsável */
+.asaas-badge { display: inline-block; margin-left: 8px; vertical-align: middle; font-family: var(--font-body); font-size: 10.5px; font-weight: 800; letter-spacing: .3px; padding: 2px 8px; border-radius: var(--r-pill); color: var(--ink-mute); background: var(--surface-3); border: 1px dashed #D9C8B2; white-space: nowrap; }
+.asaas-badge.is-on { color: var(--navy-600); background: #EEF3FD; border: 1px solid #D6E2F8; }
+.fd-head-main h2 .asaas-badge { font-size: 11px; position: relative; top: -3px; }
+.customer-action { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }

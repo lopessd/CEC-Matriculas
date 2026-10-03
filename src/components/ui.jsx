@@ -118,3 +118,10 @@ export function LogoBlocks() {
     </div>
   );
 }
+
+/** Etiqueta ao lado do nome: o responsável tem (ou não) cliente no Asaas. */
+export function AsaasBadge({ customerId }) {
+  return customerId
+    ? <span className="asaas-badge is-on" title={`Cliente no Asaas: ${customerId}`}>✓ Asaas</span>
+    : <span className="asaas-badge" title="Este responsável ainda não tem cadastro no Asaas">sem Asaas</span>;
+}

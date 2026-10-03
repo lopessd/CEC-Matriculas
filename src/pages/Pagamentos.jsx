@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import FamilyPayments from '../components/FamilyPayments';
+import { AsaasBadge } from '../components/ui';
 import { asaasAdmin, getInstallmentList } from '../services/data';
 import { date as formatDate, money } from '../lib/format';
 import { METHOD_LABEL, fold, formatPhoneView, timeAgo, todayIso, useSort } from '../lib/journey';
@@ -15,13 +16,14 @@ const SITUATIONS = [
   ['vencido', 'Com vencida'],
   ['quitado', 'Quitadas'],
   ['sem_cobranca', 'Sem cobrança no Asaas'],
-  ['conferir', 'Pago só no painel']
+  ['conferir', 'Pago só no painel'],
+  ['sem_cliente', 'Sem cadastro no Asaas']
 ];
 
 function summarize(rows) {
   const families = new Map();
   for (const row of rows) {
-    if (!families.has(row.guardian_id)) families.set(row.guardian_id, { guardian_id: row.guardian_id, guardian_name: row.guardian_name, guardian_phone: row.guardian_phone, rows: [] });
+    if (!families.has(row.guardian_id)) families.set(row.guardian_id, { guardian_id: row.guardian_id, guardian_name: row.guardian_name, guardian_phone: row.guardian_phone, customerId: row.asaas_customer_id || null, rows: [] });
     families.get(row.guardian_id).rows.push(row);
   }
   const today = todayIso();
@@ -65,6 +67,26 @@ const SITUATION_VIEW = {
   aberto: ['Em dia', 'mute'],
   vazio: ['Sem parcelas', 'mute']
 };
+
+function CustomerAction({ family, onDone }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  if (family.customerId) return <span className="meta">Cliente no Asaas: {family.customerId}</span>;
+  async function create() {
+    setBusy(true); setMessage('');
+    try {
+      const result = await asaasAdmin('customer', { guardian_id: family.guardian_id });
+      setMessage(result.origin === 'criado' ? 'Cliente criado no Asaas.' : 'Cliente já existia no Asaas (achado pelo CPF) e foi vinculado.');
+      await onDone();
+    } catch (error) { setMessage(error.message); } finally { setBusy(false); }
+  }
+  return (
+    <span className="customer-action">
+      {message ? <span className="meta">{message}</span> : <span className="meta">Sem cadastro no Asaas.</span>}
+      <button type="button" className="btn btn--ghost" disabled={busy} onClick={create}>{busy ? 'Criando…' : 'Criar / vincular cliente no Asaas'}</button>
+    </span>
+  );
+}
 
 function SyncReport({ report, onClose }) {
   const changes = report.families.flatMap((family) => family.changes.map((change) => ({ ...change, family: family.guardian_name })));
@@ -153,6 +175,7 @@ export default function Pagamentos() {
     if (situation === 'quitado') return current === 'quitado';
     if (situation === 'sem_cobranca') return family.rows.some((row) => row.status === 'pendente' && !row.provider_charge_id && row.method !== 'dinheiro');
     if (situation === 'conferir') return family.manualOnly > 0;
+    if (situation === 'sem_cliente') return !family.customerId;
     return true;
   });
   const { sorted, sort, toggle } = useSort(filtered, {
@@ -246,7 +269,7 @@ export default function Pagamentos() {
                   <tr key={family.guardian_id} className={`ops-row${isOpen ? ' is-open' : ''}`} onClick={() => setOpenId(isOpen ? null : family.guardian_id)}>
                     <td>
                       <div className="cell-stack">
-                        <strong className="cell-strong">{family.guardian_name}</strong>
+                        <strong className="cell-strong">{family.guardian_name}<AsaasBadge customerId={family.customerId} /></strong>
                         <span>{family.students.join(', ')}</span>
                       </div>
                     </td>
@@ -268,6 +291,7 @@ export default function Pagamentos() {
                       <td colSpan={8}>
                         <div className="ops-detail-head">
                           <span>{formatPhoneView(family.guardian_phone)}</span>
+                          <CustomerAction family={family} onDone={() => load(true)} />
                           <Link className="btn btn--ghost" to={`/familias/${family.guardian_id}?aba=financeiro`}>Ficha da família →</Link>
                         </div>
                         <FamilyPayments key={report?.synced_at || 'base'} rows={family.rows} guardianId={family.guardian_id} unmatched={unmatchedByGuardian[family.guardian_id]} onChanged={() => load(true)} />
