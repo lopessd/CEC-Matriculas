@@ -200,6 +200,16 @@ export function chooseOnboardingBilling(token, method) {
   return supabase.rpc('onboarding_choose_billing', { p_token: token, p_method: method });
 }
 
+/** Total no cartão com a taxa repassada (card_fees), para N parcelas. */
+export function cardTotalCents(netCents, installments) {
+  return supabase.rpc('card_total_cents', { p_net_cents: netCents, p_installments: installments });
+}
+
+/** Etapa Cobrança: em quantas vezes e como pagar (refaz as parcelas se mudar). */
+export function chooseOnboardingBillingPlan(token, installments, method) {
+  return supabase.rpc('onboarding_choose_billing_plan', { p_token: token, p_installments: installments, p_method: method });
+}
+
 export function onboardingCardQuote(token) {
   return supabase.rpc('onboarding_card_quote', { p_token: token });
 }

@@ -7,7 +7,7 @@ import AddressFields from '../components/AddressFields';
 import { BillingStep, ConditionsStep, DoneStep, PaymentStep, SignStep } from '../components/JourneySteps';
 import { formatCpf, formatPhoneBr, isValidCpf, isValidEmail, isValidPhoneBr, money } from '../lib/format';
 import {
-  addRematriculaChild, chooseOnboardingBilling, chooseOnboardingPlan, createAsaasCheckout, createMatriculaOnboarding,
+  addRematriculaChild, chooseOnboardingBillingPlan, chooseOnboardingPlan, createAsaasCheckout, createMatriculaOnboarding,
   getPublicOfferings, identifyRematriculaOnboarding, lookupExistingFamilyForNewEnrollment, openEnrollmentOnboarding,
   prepareFamilyContract, removeAddedChild, selectRematriculaChildren, setGuardianRg, startEnrollmentOnboarding,
   startRematriculaFromNewEnrollment
@@ -246,7 +246,7 @@ export default function EnrollmentOnboarding({ initialFlow = null }) {
     catch (reason) { setNotice(reason.message || 'Não foi possível gerar a cobrança agora. Tente de novo em instantes.'); }
     apply(await openEnrollmentOnboarding(token));
   }
-  const confirmBilling = (method) => run(async () => { await chooseOnboardingBilling(token, method); await generateCheckout(); }, 'Não foi possível gerar o pagamento.');
+  const confirmBilling = (installments, method) => run(async () => { await chooseOnboardingBillingPlan(token, installments, method); await generateCheckout(); }, 'Não foi possível gerar o pagamento.');
   const retryCheckout = () => run(generateCheckout, 'Não foi possível gerar o pagamento.');
   async function addChild(event) {
     event.preventDefault();

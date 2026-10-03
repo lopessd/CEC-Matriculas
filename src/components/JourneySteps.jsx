@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { contractPdfUrl, downloadFiles, onboardingCardQuote } from '../services/data';
+import { cardTotalCents, contractPdfUrl, downloadFiles } from '../services/data';
 import { date, money } from '../lib/format';
 
 const methodInfo = {
@@ -135,39 +135,88 @@ export function DownloadContracts({ data }) {
 }
 
 export function BillingStep({ data, busy, onConfirm }) {
-  const [method, setMethod] = useState(data.billing_method || 'boleto');
   const children = (data.children || []).filter((child) => child.selected);
-  const plan = data.plan_choice || { installments: (data.charges || []).length || 1, due_dates: (data.charges || []).map((item) => item.due_date) };
-  const schedule = (data.charges || []).length
-    ? data.charges.map((item) => ({ amount: Number(item.amount_cents), due: item.due_date }))
-    : familySchedule(children, plan);
-  const [cardQuote, setCardQuote] = useState(null);
+  const choices = data.plan_choices || [];
+  const total = children.reduce((sum, child) => sum + (Number(child.amount_cents) || 0), 0);
+  const fullTotal = children.reduce((sum, child) => sum + (Number(child.full_amount_cents) || Number(child.amount_cents) || 0), 0);
+  const savings = Math.max(0, fullTotal - total);
+  const initialCount = Number(data.plan_choice?.installments) || Number(choices[0]?.installments) || 1;
+  const [installments, setInstallments] = useState(initialCount);
+  const plan = choices.find((item) => Number(item.installments) === installments) || data.plan_choice || choices[0];
+  // À vista libera o Pix; parcelado é só boleto ou cartão.
+  const methods = installments === 1 ? ['pix', 'boleto', 'cartao'] : ['boleto', 'cartao'];
+  const [method, setMethod] = useState(() => {
+    const saved = data.billing_method;
+    return saved && (initialCount === 1 || saved !== 'pix') ? saved : initialCount === 1 ? 'pix' : 'boleto';
+  });
+  const [cardTotal, setCardTotal] = useState(null);
+  const schedule = familySchedule(children, plan);
+  const cardCount = Math.min(3, installments);
+
+  function pickInstallments(count) {
+    setInstallments(count);
+    if (count > 1 && method === 'pix') setMethod('boleto');
+    if (count === 1 && method !== 'cartao') setMethod('pix');
+  }
+
   useEffect(() => {
-    if (method !== 'cartao' || cardQuote || !data.token) return;
-    onboardingCardQuote(data.token).then(setCardQuote).catch(() => setCardQuote(null));
-  }, [method, cardQuote, data.token]);
-  return <section className="onboarding-form">
-    <div className="values-done"><strong>Contrato{children.length > 1 ? 's' : ''} assinado{children.length > 1 ? 's' : ''} ✓</strong><span>Falta só escolher como pagar. A cobrança é gerada na hora.</span></div>
-    <DownloadContracts data={data} />
+    if (method !== 'cartao' || !total) { setCardTotal(null); return undefined; }
+    let alive = true;
+    setCardTotal(null);
+    cardTotalCents(total, cardCount).then((value) => { if (alive) setCardTotal(Number(value) || total); }).catch(() => { if (alive) setCardTotal(total); });
+    return () => { alive = false; };
+  }, [method, total, cardCount]);
+
+  return <section className="onboarding-form values-step">
+    <div className="values-done"><strong>Contrato{children.length > 1 ? 's' : ''} assinado{children.length > 1 ? 's' : ''} ✓</strong><span>Agora escolha em quantas vezes e como pagar. A cobrança é gerada na hora.</span></div>
+
+    {savings > 0 ? <div className="values-hero">
+      <span className="values-hero__tag">Valor garantido na assinatura</span>
+      <div className="values-hero__numbers">
+        <div><small>Tabela 2027</small><s>{money(fullTotal)}</s></div>
+        <div className="values-hero__main"><small>Você paga</small><strong>{money(total)}</strong></div>
+      </div>
+      <p>Fechando antes, você economizou <b>{money(savings)}</b>.</p>
+    </div> : <div className="values-hero values-hero--plain">
+      <span className="values-hero__tag">{children.length > 1 ? 'Total da família' : 'Valor da matrícula'}</span>
+      <div className="values-hero__numbers"><div className="values-hero__main"><small>{children.length > 1 ? `${children.length} alunos` : '2027'}</small><strong>{money(total)}</strong></div></div>
+      {choices.some((item) => Number(item.installments) > 1) ? <p>Fechando agora, dá para dividir em até <b>{Math.max(...choices.map((item) => Number(item.installments)))}x</b> sem juros no boleto.</p> : null}
+    </div>}
+
     <div className="values-config">
+      <h3>Em quantas vezes?</h3>
+      <div className="values-segment" role="radiogroup" aria-label="Número de parcelas">
+        {choices.map((item) => {
+          const count = Number(item.installments);
+          return <button type="button" role="radio" aria-checked={installments === count} key={count} className={installments === count ? 'is-active' : ''} onClick={() => pickInstallments(count)}>
+            <strong>{count === 1 ? 'À vista' : `${count}x de ${money(Math.ceil(total / count))}`}</strong>
+            <small>{count === 1 ? `${money(total)} em ${planDates(item)} · libera o Pix` : `${planDates(item)} · boleto ou cartão`}</small>
+          </button>;
+        })}
+      </div>
+
       <h3>Como você quer pagar?</h3>
       <div className="values-segment billing-methods" role="radiogroup" aria-label="Forma de pagamento">
-        {Object.entries(methodInfo).map(([key, info]) => <button type="button" role="radio" aria-checked={method === key} key={key} className={method === key ? 'is-active' : ''} onClick={() => setMethod(key)}>
-          <strong>{info.label}</strong><small>{info.hint}</small>
+        {methods.map((key) => <button type="button" role="radio" aria-checked={method === key} key={key} className={method === key ? 'is-active' : ''} onClick={() => setMethod(key)}>
+          <strong>{methodInfo[key].label}</strong>
+          <small>{key === 'pix' ? 'À vista, com QR Code e copia e cola.' : key === 'boleto' ? (installments > 1 ? 'Um boleto para cada vencimento.' : 'Boleto único.') : (cardCount > 1 ? `Em ${cardCount}x no cartão, com a taxa do cartão.` : 'À vista no cartão, com a taxa do cartão.')}</small>
         </button>)}
       </div>
+
       {method === 'cartao' ? <div className="values-schedule">
-        {cardQuote ? <>
-          <div><span>Valor dos contratos</span><b>{money(cardQuote.net_cents)}</b></div>
-          <div><span>Taxa do cartão{cardQuote.installments > 1 ? ` em ${cardQuote.installments}x` : ''}</span><b>{money(cardQuote.fee_cents)}</b></div>
-          <div className="values-schedule__total"><span>{cardQuote.installments > 1 ? `${cardQuote.installments}x de ${money(cardQuote.installment_cents)}` : 'Total no cartão'}</span><b>{money(cardQuote.total_cents)}</b></div>
+        {cardTotal != null ? <>
+          <div><span>Valor dos contratos</span><b>{money(total)}</b></div>
+          <div><span>Taxa do cartão{cardCount > 1 ? ` em ${cardCount}x` : ''}</span><b>{money(cardTotal - total)}</b></div>
+          <div className="values-schedule__total"><span>{cardCount > 1 ? `${cardCount}x de ${money(Math.ceil(cardTotal / cardCount))}` : 'Total no cartão'}</span><b>{money(cardTotal)}</b></div>
         </> : <div><span>Calculando o valor no cartão…</span></div>}
       </div> : <div className="values-schedule">
         {schedule.map((item, index) => <div key={item.due || index}><span>{schedule.length > 1 ? `${index + 1}ª parcela` : 'Parcela única'} · vence {date(item.due)}</span><b>{money(item.amount)}</b></div>)}
+        <div className="values-schedule__total"><span>Total</span><b>{money(total)}</b></div>
       </div>}
-      {method === 'cartao' ? <p className="meta">O cartão é cobrado na hora, nas parcelas escolhidas no plano. A taxa do parcelamento é paga por quem usa o cartão.</p> : null}
+      {method === 'cartao' ? <p className="meta">O cartão é cobrado na hora. A taxa do parcelamento é paga por quem usa o cartão.</p> : null}
     </div>
-    <button className="cta" disabled={busy || (method === 'cartao' && !cardQuote)} onClick={() => onConfirm(method)}>{busy ? 'Gerando cobrança…' : 'Gerar pagamento →'}</button>
+    <DownloadContracts data={data} />
+    <button className="cta" disabled={busy || !plan || (method === 'cartao' && cardTotal == null)} onClick={() => onConfirm(installments, method)}>{busy ? 'Gerando cobrança…' : 'Gerar pagamento →'}</button>
   </section>;
 }
 
