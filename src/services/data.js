@@ -466,3 +466,8 @@ export function searchRematriculaFamilies(term) {
 export function startStaffRematricula(guardianId) {
   return supabase.rpc('staff_start_rematricula', { p_guardian_id: guardianId });
 }
+
+/** Jornada da família a partir do link do contrato (para seguir ao pagamento). */
+export function contractResumeJourney(token) {
+  return supabase.rpc('contract_resume_journey', { p_token: token });
+}

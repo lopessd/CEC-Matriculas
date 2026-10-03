@@ -7,7 +7,7 @@ import AddressFields from '../components/AddressFields';
 import { BillingStep, ConditionsStep, DoneStep, PaymentStep, SignStep } from '../components/JourneySteps';
 import { formatCpf, formatPhoneBr, isValidCpf, isValidEmail, isValidPhoneBr, money } from '../lib/format';
 import {
-  addRematriculaChild, chooseOnboardingBilling, chooseOnboardingPlan, createMatriculaOnboarding,
+  addRematriculaChild, chooseOnboardingBilling, chooseOnboardingPlan, createAsaasCheckout, createMatriculaOnboarding,
   getPublicOfferings, identifyRematriculaOnboarding, lookupExistingFamilyForNewEnrollment, openEnrollmentOnboarding,
   prepareFamilyContract, removeAddedChild, selectRematriculaChildren, setGuardianRg, startEnrollmentOnboarding,
   startRematriculaFromNewEnrollment
@@ -239,10 +239,15 @@ export default function EnrollmentOnboarding({ initialFlow = null }) {
       navigate(`${result.url}?j=${encodeURIComponent(token)}&f=${encodeURIComponent(flow)}`);
     }, 'Não foi possível preparar o contrato.');
   }
-  // Pagamento online em espera: a família só registra a forma de pagamento.
-  // A matrícula fica concluída aguardando pagamento e a escola envia o link
-  // depois, pelo WhatsApp (asaas-checkout segue disponível para esse envio).
-  const confirmBilling = (method) => run(async () => { apply(await chooseOnboardingBilling(token, method)); }, 'Não foi possível registrar a forma de pagamento.');
+  // Escolhida a forma, a cobrança sai na hora no Asaas (asaas-checkout) e os
+  // botões de pagar aparecem na etapa Pagamento.
+  async function generateCheckout() {
+    try { await createAsaasCheckout(token); }
+    catch (reason) { setNotice(reason.message || 'Não foi possível gerar a cobrança agora. Tente de novo em instantes.'); }
+    apply(await openEnrollmentOnboarding(token));
+  }
+  const confirmBilling = (method) => run(async () => { await chooseOnboardingBilling(token, method); await generateCheckout(); }, 'Não foi possível gerar o pagamento.');
+  const retryCheckout = () => run(generateCheckout, 'Não foi possível gerar o pagamento.');
   async function addChild(event) {
     event.preventDefault();
     if (!newChild?.name?.trim() || !newChild?.gradeId) { setNotice('Informe o nome completo e a série do novo aluno.'); return; }
@@ -316,7 +321,7 @@ export default function EnrollmentOnboarding({ initialFlow = null }) {
     {stage === 'condicoes' ? <ConditionsStep key={data.plan_choice?.installments || 'novo'} data={data} busy={busy} onConfirm={confirmPlan} onEditChildren={remat && !anySigned ? () => setView('alunos') : null} /> : null}
     {stage === 'assinatura' ? <SignStep data={data} busy={busy} email={email} onEmail={setEmail} onSign={sign} onEditPlan={() => setView('condicoes')} field={Field} /> : null}
     {stage === 'cobranca' ? <BillingStep data={data} busy={busy} onConfirm={confirmBilling} /> : null}
-    {stage === 'pagamento' ? <PaymentStep data={data} onChangeMethod={chargesGenerated ? null : () => setView('cobranca')} /> : null}
+    {stage === 'pagamento' ? <PaymentStep data={data} busy={busy} onRetry={retryCheckout} onChangeMethod={chargesGenerated ? null : () => setView('cobranca')} /> : null}
     {stage === 'concluida' ? <DoneStep data={data} /> : null}
     {notice ? <div className="notice"><span>{notice}</span></div> : null}
   </div></section></main> : null}</DataState>;

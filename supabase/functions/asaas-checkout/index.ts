@@ -117,7 +117,9 @@ Deno.serve(async (request) => {
       .order("due_date");
     if (pendingError) throw pendingError;
 
-    if ((pending || []).length) {
+    // Dinheiro é pago na secretaria: não gera cobrança no Asaas.
+    const cash = (pending || []).length > 0 && (pending as Installment[]).every((row) => row.method === "dinheiro");
+    if ((pending || []).length && !cash) {
       const { data: guardian, error: guardianError } = await supabase
         .from("guardians")
         .select("id, full_name, cpf, email, phone, address, asaas_customer_id")
