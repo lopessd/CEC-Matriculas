@@ -70,7 +70,7 @@ function PaymentSetup({ guardianId, current, onChanged }) {
   );
 }
 
-function Resumo({ detail, current, previous, journey, onChanged }) {
+function Resumo({ detail, current, journey, onChanged }) {
   const { guardian, conversation, installments } = detail;
   const total = current.reduce((sum, item) => sum + Number(item.amount_cents || 0), 0);
   const active = installments.filter((item) => item.status !== 'cancelado' && current.some((enrollment) => enrollment.id === item.enrollment_id));
@@ -102,12 +102,6 @@ function Resumo({ detail, current, previous, journey, onChanged }) {
           {journey?.plan_name || journey?.billing_method ? <p className="meta" style={{ marginTop: 10 }}>Na jornada online a família escolheu: {[journey.plan_name, METHOD_LABEL[journey.billing_method]].filter(Boolean).join(' · ')}</p> : null}
         </section>
 
-        {previous.length ? (
-          <section className="card">
-            <div className="card-title" style={{ marginBottom: 12 }}>Anos anteriores</div>
-            {previous.map((item) => <div key={item.id} className="fd-line"><span>{item.academic_year} · {item.student_name}</span><span className="meta">{item.grade_name || item.from_class_name || '—'} · {ENROLLMENT_STATUS[item.status] || item.status}</span></div>)}
-          </section>
-        ) : null}
       </div>
 
       <div className="fd-col">
@@ -273,7 +267,6 @@ export default function FamilyDetail() {
 
   const data = state.data;
   const current = useMemo(() => (data?.enrollments || []).filter((item) => item.campaign_active), [data]);
-  const previous = useMemo(() => (data?.enrollments || []).filter((item) => !item.campaign_active), [data]);
   const journey = data?.journeys?.[0];
   const kind = journey?.flow || current[0]?.campaign_kind || 'rematricula';
   const stage = stageInfo(journey?.stage || (current.some((item) => item.completed_at) ? 'concluida' : current.some((item) => item.signed_at) ? 'pagamento' : current.length ? 'conversa' : 'a_contatar'), kind);
@@ -325,7 +318,7 @@ export default function FamilyDetail() {
         {TABS.map(([value, label]) => <button key={value} type="button" className={`tab${tab === value ? ' is-active' : ''}`} onClick={() => setTab(value)}>{label}{value === 'financeiro' && openCents ? <span className="tab-badge">{money(openCents)}</span> : null}</button>)}
       </div>
 
-      {tab === 'resumo' ? <Resumo detail={data} current={current} previous={previous} journey={journey} onChanged={() => load(true)} /> : null}
+      {tab === 'resumo' ? <Resumo detail={data} current={current} journey={journey} onChanged={() => load(true)} /> : null}
       {tab === 'contrato' ? (
         <>
           {unsigned.length ? <ContractSetup key={unsigned.map((item) => item.id).join()} enrollments={unsigned} guardian={guardian} campaignId={unsigned[0].campaign_id} onCreated={() => load(true)} /> : <div className="notice notice--soft"><span>{current.length ? 'Todos os alunos desta campanha já assinaram.' : 'Sem matrícula na campanha ativa para gerar contrato.'}</span></div>}

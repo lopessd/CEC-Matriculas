@@ -15,7 +15,6 @@ const PAYMENT_VIEW = { quitado: ['Quitado', 'ok'], em_dia: ['Em dia', 'mute'], v
 
 export default function Matriculados() {
   const navigate = useNavigate();
-  const [scope, setScope] = useState('atual');
   const [type, setType] = useState('');
   const [grade, setGrade] = useState('');
   const [payment, setPayment] = useState('');
@@ -37,7 +36,8 @@ export default function Matriculados() {
     const today = todayIso();
     return source.data.enrollments
       .filter((item) => item.signed_at || item.completed_at)
-      .filter((item) => scope === 'todas' || (scope === 'atual' ? active.has(item.campaign_id) : !active.has(item.campaign_id)))
+      // Só a campanha ativa; anos anteriores ficam no banco, fora da tela.
+      .filter((item) => active.has(item.campaign_id))
       .map((item) => {
         const list = byEnrollment.get(item.id) || [];
         const paid = list.filter((row) => row.status === 'pago');
@@ -54,7 +54,7 @@ export default function Matriculados() {
           nextDue: list.filter((row) => row.status !== 'pago').map((row) => row.due_date).sort()[0] || null
         };
       });
-  }, [source.data, scope]);
+  }, [source.data]);
 
   const grades = useMemo(() => [...new Set(rows.map((row) => row.target_grade_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })), [rows]);
   const term = fold(search.trim());
@@ -89,9 +89,6 @@ export default function Matriculados() {
     <DataState loading={source.loading && !source.data} error={source.error} empty={false}>
       <div className="ops">
         <div className="ops-toolbar">
-          <div className="segmented">
-            {[['atual', 'Campanha atual'], ['anteriores', 'Anos anteriores'], ['todas', 'Todas']].map(([value, label]) => <button key={value} type="button" className={scope === value ? 'is-active' : ''} onClick={() => setScope(value)}>{label}</button>)}
-          </div>
           <div className="ops-toolbar-end"><button type="button" className="btn" onClick={exportCsv} disabled={!sorted.length}>Exportar CSV</button></div>
         </div>
 
