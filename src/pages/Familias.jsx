@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import NewEnrollmentWizard from '../components/NewEnrollmentWizard';
+import EnrollmentWizard from '../components/EnrollmentWizard';
 import { getJourneyBoard } from '../services/data';
 import { money } from '../lib/format';
 import { COLUMNS, KINDS, KIND_LABEL, METHOD_LABEL, downloadCsv, fold, formatPhoneView, stageInfo, stageRank, timeAgo, useSort } from '../lib/journey';
@@ -107,7 +107,7 @@ export default function Familias() {
         <div className="ops-toolbar-end">
           <button type="button" className="btn btn--ghost" onClick={load} disabled={state.loading}>{state.loading ? 'Atualizando…' : state.at ? `Atualizado ${timeAgo(state.at)}` : 'Atualizar'}</button>
           <button type="button" className="btn" onClick={exportCsv} disabled={!sorted.length}>Exportar CSV</button>
-          <button type="button" className="btn btn--orange" onClick={() => setWizard(true)}>+ Nova matrícula</button>
+          <button type="button" className="btn btn--orange" onClick={() => setWizard(true)}>+ Matrícula ou rematrícula</button>
         </div>
       </div>
 
@@ -196,7 +196,7 @@ export default function Familias() {
         </div>
       ) : null}
 
-      {wizard ? <NewEnrollmentWizard onClose={() => { setWizard(false); setParams((current) => { const next = new URLSearchParams(current); next.delete('nova'); return next; }, { replace: true }); }} onCreated={load} /> : null}
+      {wizard ? <EnrollmentWizard onClose={() => { setWizard(false); setParams((current) => { const next = new URLSearchParams(current); next.delete('nova'); return next; }, { replace: true }); }} onCreated={load} /> : null}
     </div>
   );
 }

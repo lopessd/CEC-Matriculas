@@ -456,3 +456,13 @@ export function addCashMovement({ kind, amountCents, description, occurredOn }) 
 export function asaasAdmin(action, payload = {}) {
   return supabase.invokeFunction('asaas-admin', { action, ...payload });
 }
+
+/** Rematrícula pela secretaria: busca a família por nome, CPF, telefone ou aluno. */
+export function searchRematriculaFamilies(term) {
+  return supabase.rpc('staff_search_rematricula_families', { p_term: term });
+}
+
+/** Abre (ou reaproveita) a jornada de rematrícula da família já identificada. */
+export function startStaffRematricula(guardianId) {
+  return supabase.rpc('staff_start_rematricula', { p_guardian_id: guardianId });
+}
