@@ -83,7 +83,7 @@ export default function Assinaturas() {
         <div className="dz-stats">
           <div className="dz-stat tone-ok"><span className="dz-stat-label">Contratos assinados</span><span className="dz-stat-value">{current.length}</span><span className="dz-stat-sub">um por aluno, versão que vale</span></div>
           <div className="dz-stat"><span className="dz-stat-label">Famílias</span><span className="dz-stat-value">{new Set(current.map((item) => item.enrollment?.guardian_id).filter(Boolean)).size}</span><span className="dz-stat-sub">irmãos assinam juntos</span></div>
-          <div className="dz-stat"><span className="dz-stat-label">Reassinados</span><span className="dz-stat-value">{current.filter((item) => item.provider === 'cec_reassinatura_manual').length}</span><span className="dz-stat-sub">contrato corrigido assinado de novo</span></div>
+          <div className="dz-stat"><span className="dz-stat-label">Últimos 7 dias</span><span className="dz-stat-value">{current.filter((item) => Date.now() - new Date(item.completed_at || item.signed_pdf_at).getTime() < 7 * 86400000).length}</span><span className="dz-stat-sub">contratos assinados na semana</span></div>
           <div className="dz-stat"><span className="dz-stat-label">Versões antigas</span><span className="dz-stat-value">{legacyCount}</span><span className="dz-stat-sub">guardadas como legado</span></div>
         </div>
 
@@ -114,7 +114,7 @@ export default function Assinaturas() {
                 <tr key={item.id} className={item.legacy ? 'is-legacy' : ''}>
                   <td><div className="cell-stack"><strong className="cell-strong">{item.enrollment?.guardian_name || item.signer_full_name || 'Responsável'}</strong><span>{KIND_LABEL[item.enrollment?.campaign_kind] || ''}</span></div></td>
                   <td className="cell">{item.enrollment?.student_name || 'Aluno'}</td>
-                  <td className="cell is-dim">{item.document_versions?.version || '—'}{item.legacy ? <span className="fp-flag">legado</span> : null}{item.provider === 'cec_reassinatura_manual' ? <span className="fp-flag">reassinado</span> : null}</td>
+                  <td className="cell is-dim">{item.document_versions?.version || '—'}{item.legacy ? <span className="fp-flag">legado</span> : null}</td>
                   <td className="cell">{dateTime(item.completed_at || item.signed_pdf_at)}</td>
                   <td><div className="cell-stack"><span className="cell">{item.signer_full_name || '—'}</span><span>{item.signer_email || ''}</span></div></td>
                   <td className="ops-actions">

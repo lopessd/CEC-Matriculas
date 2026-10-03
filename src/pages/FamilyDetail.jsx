@@ -172,7 +172,7 @@ function Documents({ documents }) {
               {rows.map((item) => (
                 <tr key={item.id} className={item.legacy ? 'is-legacy' : ''}>
                   <td className="cell-strong">{item.student_name}</td>
-                  <td className="cell is-dim">{item.version}{item.legacy ? <span className="fp-flag">legado</span> : null}{item.provider === 'cec_reassinatura_manual' ? <span className="fp-flag">reassinado</span> : null}</td>
+                  <td className="cell is-dim">{item.version}{item.legacy ? <span className="fp-flag">legado</span> : null}</td>
                   <td><span className={`fp-status fp-status--${item.status === 'assinado' ? 'ok' : 'mute'}`}>{item.status}</span></td>
                   <td className="cell is-dim">{item.completed_at ? `${dateTime(item.completed_at)}${item.signer_full_name ? ` · ${item.signer_full_name}` : ''}` : '—'}</td>
                   <td className="ops-actions">{item.signed_storage_path ? <><button type="button" className="btn btn--ghost" disabled={busy === item.id} onClick={() => open(item, false)}>Ver</button><button type="button" className="btn" disabled={busy === item.id} onClick={() => open(item, true)}>Baixar</button></> : null}</td>
