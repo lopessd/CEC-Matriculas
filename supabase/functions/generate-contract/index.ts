@@ -68,25 +68,6 @@ function drawWrapped(page: ReturnType<PDFDocument["getPages"]>[number], font: Aw
   drawField(page, font, words.join(" "), x, y - 6.2, maxWidth);
 }
 
-function money(cents: number) {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function shortDate(value: string) {
-  const [, month, day] = value.split("-");
-  return `${day}/${month}`;
-}
-
-// Plano da 1ª parcela/matrícula pelas parcelas já montadas na jornada.
-function planLabel(rows: Array<{ amount_cents: number; due_date: string }>) {
-  if (!rows.length) return "";
-  if (rows.length === 1) return `À vista: ${money(rows[0].amount_cents)} em ${shortDate(rows[0].due_date)}`;
-  const dates = rows.map((row) => shortDate(row.due_date));
-  const equal = rows.every((row) => row.amount_cents === rows[rows.length - 1].amount_cents);
-  const value = equal ? `${rows.length}x de ${money(rows[0].amount_cents)}` : `${rows.length}x (${rows.map((row) => money(row.amount_cents)).join(" + ")})`;
-  return `${value}: ${dates.slice(0, -1).join(", ")} e ${dates.at(-1)}`;
-}
-
 // Modelo 2027 (Carta, 2 páginas): quadro no topo da página 1, data e
 // assinatura no fim da página 2. Modelo 2025 (A4, 6 páginas): mantido para
 // rascunhos gerados antes da troca, que ainda podem ser assinados.
@@ -94,14 +75,58 @@ function isTemplate2027(page: ReturnType<PDFDocument["getPages"]>[number]) {
   return Math.round(page.getHeight()) === 792;
 }
 
-const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
-
-function contractFilePath(sessionId: string, enrollmentId: string) {
-  return `contracts/${sessionId}/${enrollmentId}.pdf`;
+// Modelo 2027 com a logo (v7, Carta, 3 páginas): o quadro tem rótulo em cima
+// e valor embaixo; data, nome e CPF ficam centralizados sob as assinaturas.
+function isTemplateV7(pdf: PDFDocument) {
+  return pdf.getPageCount() === 3 && isTemplate2027(pdf.getPages()[0]);
 }
 
-function signedContractFilePath(sessionId: string, enrollmentId: string) {
-  return `contracts/${sessionId}/${enrollmentId}/assinado.pdf`;
+const INK = rgb(0.12, 0.14, 0.18);
+
+function drawValue(page: ReturnType<PDFDocument["getPages"]>[number], font: Awaited<ReturnType<PDFDocument["embedFont"]>>, value: string, x: number, y: number, maxWidth: number, start = 10) {
+  const content = value.trim();
+  if (!content) return;
+  let size = start;
+  while (size > 6.5 && font.widthOfTextAtSize(content, size) > maxWidth) size -= 0.25;
+  page.drawText(content, { x, y, size, font, color: INK });
+}
+
+function drawCentered(page: ReturnType<PDFDocument["getPages"]>[number], font: Awaited<ReturnType<PDFDocument["embedFont"]>>, value: string, center: number, y: number, size: number, color = INK) {
+  const content = value.trim();
+  if (content) page.drawText(content, { x: center - font.widthOfTextAtSize(content, size) / 2, y, size, font, color });
+}
+
+// Endereço do v7: uma linha em 10pt ou até duas em 9pt.
+function drawAddressV7(page: ReturnType<PDFDocument["getPages"]>[number], font: Awaited<ReturnType<PDFDocument["embedFont"]>>, value: string) {
+  const content = value.trim();
+  const [x, maxWidth] = [212.5, 336];
+  if (font.widthOfTextAtSize(content, 10) <= maxWidth) return drawValue(page, font, content, x, 587.7, maxWidth);
+  const words = content.split(/\s+/);
+  let first = "";
+  while (words.length && font.widthOfTextAtSize(`${first} ${words[0]}`.trim(), 9) <= maxWidth) first = `${first} ${words.shift()}`.trim();
+  page.drawText(first, { x, y: 588.7, size: 9, font, color: INK });
+  drawValue(page, font, words.join(" "), x, 578.7, maxWidth, 9);
+}
+
+function money(cents: number) {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+function slug(value: string) {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase();
+}
+
+// Nome legível no Storage: pasta do responsável, arquivo do aluno. O início
+// do id da matrícula impede que homônimos se sobrescrevam.
+function contractFilePath(guardianName: string, studentName: string, enrollmentId: string) {
+  return `contracts/${slug(guardianName) || "responsavel"}/${slug(studentName) || "aluno"}__${enrollmentId.slice(0, 8)}.pdf`;
+}
+
+// O assinado fica ao lado do rascunho de onde saiu.
+function signedContractFilePath(generatedPath: string) {
+  return generatedPath.replace(/\.pdf$/, "-assinado.pdf");
 }
 
 function decodeSignature(value: string) {
@@ -121,16 +146,21 @@ async function applySignature(pdfBytes: Uint8Array, signatureData: string) {
   const signature = decodeSignature(signatureData);
   const image = signature.type === "png" ? await pdf.embedPng(signature.bytes) : await pdf.embedJpg(signature.bytes);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const v7 = isTemplateV7(pdf);
   const modern = isTemplate2027(page);
   // Área da assinatura: sobre a linha do CONTRATANTE.
-  const box = modern ? { x: 216, y: 158, width: 180, height: 21 } : { x: 212, y: 379, width: 172, height: 58 };
+  const box = v7 ? { x: 76, y: 369, width: 181, height: 36 }
+    : modern ? { x: 216, y: 158, width: 180, height: 21 } : { x: 212, y: 379, width: 172, height: 58 };
   const scale = Math.min(box.width / image.width, box.height / image.height);
   const width = image.width * scale;
   const height = image.height * scale;
   page.drawImage(image, { x: box.x + (box.width - width) / 2, y: box.y + (box.height - height) / 2, width, height });
 
   const [day, month, year] = signedDate().split("/");
-  if (modern) {
+  if (v7) {
+    // Data por extenso, centralizada como no contrato impresso.
+    drawCentered(page, font, `Nanuque/MG, ${day} de ${MONTHS[Number(month) - 1]} de ${year}.`, 306, 437.7, 10);
+  } else if (modern) {
     // "Nanuque/MG, ______ de ______________ de 20____."
     const centered = (text: string, start: number, end: number) => {
       const textWidth = font.widthOfTextAtSize(text, 9);
@@ -186,8 +216,7 @@ async function servePdf(supabase: SupabaseClient, token: string, enrollmentId: s
   let filename = "contrato-cec.pdf";
   if (download) {
     const { data: enrollment } = await supabase.from("enrollments").select("students(full_name)").eq("id", enrollmentId).maybeSingle();
-    const name = String((enrollment as { students?: { full_name?: string } } | null)?.students?.full_name || "aluno")
-      .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase();
+    const name = slug(String((enrollment as { students?: { full_name?: string } } | null)?.students?.full_name || "aluno"));
     filename = `contrato-cec-${name}${acceptance?.signed_storage_path ? "-assinado" : ""}.pdf`;
   }
   return new Response(await file.arrayBuffer(), {
@@ -203,12 +232,13 @@ async function servePdf(supabase: SupabaseClient, token: string, enrollmentId: s
 async function generate(supabase: SupabaseClient, token: string, templateBase64: string, onlyIfOutdated = false) {
   const session = await getSession(supabase, token);
   if (!session) return json({ error: "Contrato indisponível" }, 404);
+  if (session.status === "assinada") return json({ error: "Este contrato já foi assinado e seu PDF final está preservado." }, 409);
   if (templateBase64.length < 1000 || templateBase64.length > 1_000_000) return json({ error: "Modelo de contrato inválido" }, 422);
 
   const [guardianResult, enrollmentResult, versionResult] = await Promise.all([
     supabase.from("guardians").select("id, full_name, phone, rg, cpf, address").eq("id", session.guardian_id).single(),
     supabase.from("contract_session_enrollments").select("enrollment_id, enrollments!inner(id, campaign_id, target_grade_id, target_shift, amount_cents, students!inner(full_name), grades!enrollments_target_grade_id_fkey!inner(name), campaigns!inner(academic_year))").eq("contract_session_id", session.id),
-    supabase.from("document_versions").select("id, sha256, version, documents!inner(code, kind)").eq("is_current", true).eq("documents.code", "contrato_prestacao").maybeSingle(),
+    supabase.from("document_versions").select("id, sha256, version, storage_path, documents!inner(code, kind)").eq("is_current", true).eq("documents.code", "contrato_prestacao").maybeSingle(),
   ]);
   if (guardianResult.error) throw guardianResult.error;
   if (enrollmentResult.error) throw enrollmentResult.error;
@@ -225,7 +255,15 @@ async function generate(supabase: SupabaseClient, token: string, templateBase64:
     if ((enrollmentResult.data || []).every((row: any) => done.has(row.enrollment_id))) return json({ ok: true, unchanged: true });
   }
 
-  const template = decodeBase64(templateBase64);
+  // Modelo guardado no Storage ("storage:<caminho>"): o servidor usa o próprio
+  // arquivo e ignora o que veio da página, para trocar o modelo sem publicar o site.
+  const storagePath = String(versionResult.data.storage_path || "");
+  let template = decodeBase64(templateBase64);
+  if (storagePath.startsWith("storage:")) {
+    const { data: file, error: fileError } = await supabase.storage.from("contract-files").download(storagePath.slice(8));
+    if (fileError || !file) throw fileError || new Error("Modelo do contrato não encontrado");
+    template = new Uint8Array(await file.arrayBuffer());
+  }
   if (await sha256(template) !== versionResult.data.sha256) return json({ error: "O modelo do contrato não confere com a versão publicada pela escola" }, 409);
   const guardian = guardianResult.data;
   const rows = enrollmentResult.data || [];
@@ -240,7 +278,7 @@ async function generate(supabase: SupabaseClient, token: string, templateBase64:
   const files: Array<{ enrollment_id: string; path: string; hash: string }> = [];
   for (const row of rows as any[]) {
     const enrollment = row.enrollments;
-    const path = contractFilePath(session.id, row.enrollment_id);
+    const path = contractFilePath(guardian.full_name, enrollment.students.full_name, row.enrollment_id);
     const { data: existing } = await supabase
       .from("document_acceptances")
       .select("contract_session_id, generated_storage_path, generated_document_hash, signed_storage_path, signed_document_hash, status")
@@ -253,11 +291,27 @@ async function generate(supabase: SupabaseClient, token: string, templateBase64:
     const pdf = await PDFDocument.load(template, { ignoreEncryption: true });
     const page = pdf.getPages()[0];
     const font = await pdf.embedFont(StandardFonts.Helvetica);
-    if (isTemplate2027(page)) {
+    // Valor que a família paga na matrícula: soma das parcelas do plano
+    // escolhido (já com desconto); sem parcelas ainda, o preço travado.
+    const { data: planRows } = await supabase.from("installments")
+      .select("amount_cents").eq("enrollment_id", row.enrollment_id).neq("status", "cancelado");
+    const fee = (planRows || []).reduce((total, item) => total + Number(item.amount_cents || 0), 0) || Number(enrollment.amount_cents) || 0;
+    if (isTemplateV7(pdf)) {
+      // Quadro do v7. Anuidade, vencimento e plano são negociados depois e
+      // ficam em branco; a 1ª parcela é o valor da matrícula (já com desconto).
+      drawValue(page, font, guardian.full_name, 63, 622, 376);
+      drawValue(page, font, formatCpf(guardian.cpf), 451.9, 622, 97);
+      drawValue(page, font, formatPhone(guardian.phone), 63, 587.7, 137);
+      drawAddressV7(page, font, guardian.address);
+      drawValue(page, font, enrollment.students.full_name, 63, 514.6, 246);
+      drawValue(page, font, enrollment.grades.name, 322.2, 514.6, 117);
+      drawValue(page, font, shiftLabel(enrollment.target_shift), 451.9, 514.6, 97);
+      if (fee > 0) drawValue(page, font, money(fee), 63, 439.6, 246);
+      const last = pdf.getPages()[2];
+      drawCentered(last, font, guardian.full_name, 166.4, 339.8, 8);
+      drawCentered(last, font, `CPF: ${formatCpf(guardian.cpf)}`, 166.4, 329.7, 7.5, rgb(0.42, 0.45, 0.5));
+    } else if (isTemplate2027(page)) {
       // Quadro do modelo 2027. O RG continua no cadastro; o modelo não tem o campo.
-      const { data: planRows } = await supabase.from("installments")
-        .select("amount_cents, due_date").eq("enrollment_id", row.enrollment_id).neq("status", "cancelado").order("number");
-      const monthly = Number(enrollment.amount_cents) || 0;
       drawField(page, font, guardian.full_name, 86, 691.3, 246);
       drawField(page, font, formatCpf(guardian.cpf), 363, 691.3, 193);
       drawField(page, font, formatPhone(guardian.phone), 93, 670, 239);
@@ -265,12 +319,9 @@ async function generate(supabase: SupabaseClient, token: string, templateBase64:
       drawField(page, font, enrollment.students.full_name, 85, 606.4, 247);
       drawField(page, font, enrollment.grades.name, 385, 606.4, 52);
       drawField(page, font, shiftLabel(enrollment.target_shift), 468, 606.4, 88);
-      if (monthly) {
-        drawField(page, font, `${money(monthly * 12)} (12 x ${money(monthly)})`, 135, 584.7, 197);
-        drawField(page, font, money(monthly), 142, 562.7, 190);
-      }
-      drawField(page, font, "Dia 10 de cada mês", 393, 584.7, 163);
-      drawWrapped(page, font, planLabel(planRows || []), 429, 562.7, 127);
+      // Condições financeiras são acordadas individualmente e ficam em branco
+      // neste PDF (anuidade, vencimento e plano); a 1ª parcela é a matrícula.
+      drawField(page, font, "Matrícula", 142, 562.7, 190);
     } else {
       drawField(page, font, guardian.full_name, 84, 734, 450);
       drawField(page, font, guardian.phone, 93, 714, 441);
@@ -292,6 +343,7 @@ async function generate(supabase: SupabaseClient, token: string, templateBase64:
       template_version: versionResult.data.version,
       guardian: { full_name: guardian.full_name, phone: guardian.phone, rg: guardian.rg, cpf: guardian.cpf, address: guardian.address },
       student: { full_name: enrollment.students.full_name, grade: enrollment.grades.name, shift: shiftLabel(enrollment.target_shift) },
+      enrollment_fee_cents: fee || null,
     };
     const { error: acceptanceError } = await supabase.from("document_acceptances").upsert({
       enrollment_id: row.enrollment_id,
@@ -355,7 +407,7 @@ async function sign(supabase: SupabaseClient, token: string, signerName: string,
     if (sourceError || !source) throw sourceError || new Error("PDF individual não encontrado");
     const signedPdf = await applySignature(new Uint8Array(await source.arrayBuffer()), signatureData);
     const signedHash = await sha256(signedPdf);
-    const path = signedContractFilePath(session.id, acceptance.enrollment_id);
+    const path = signedContractFilePath(acceptance.generated_storage_path);
     const { error: uploadError } = await supabase.storage.from("contract-files").upload(path, signedPdf, { contentType: "application/pdf", upsert: true });
     if (uploadError) throw uploadError;
     const { error: updateError } = await supabase

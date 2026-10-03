@@ -79,6 +79,17 @@ export const supabase = {
   invokeFunction(name, body) {
     return request(`functions/v1/${name}`, { method: 'POST', body });
   },
+  async downloadStorageObject(bucket, path) {
+    if (!configured()) throw new Error('Supabase não foi configurado neste ambiente.');
+    const session = await currentSession();
+    if (!session?.access_token) throw new Error('Entre novamente para acessar o contrato.');
+    const objectPath = path.split('/').map(encodeURIComponent).join('/');
+    const response = await fetch(`${url}/storage/v1/object/authenticated/${encodeURIComponent(bucket)}/${objectPath}`, {
+      headers: { apikey: key, Authorization: `Bearer ${session.access_token}` }
+    });
+    if (!response.ok) throw new Error('Não foi possível acessar o contrato assinado.');
+    return response.blob();
+  },
   insert(resource, values) {
     return request(`rest/v1/${resource}`, {
       method: 'POST', body: values,

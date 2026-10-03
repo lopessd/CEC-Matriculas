@@ -3,22 +3,30 @@ import { NavLink, Outlet, matchPath, useLocation } from 'react-router-dom';
 import { FamilyHeaderContext } from '../contexts/FamilyHeaderContext';
 import Icon from './Icon';
 import cecLogo from '../assets/cec-logo.png';
+import { getWhatsappPulse } from '../services/data';
 
 const navigation = [
+  { section: 'Operação' },
+  { path: '/jornadas', label: 'Jornadas', icon: 'board', dot: '#F07E26' },
   { path: '/dashboard', label: 'Dashboard', icon: 'dashboard', dot: '#E4581C' },
   { path: '/familias', label: 'Famílias', icon: 'families', dot: '#3AA757' },
-  { path: '/matriculas-novas', label: 'Matrículas novas', icon: 'newEnroll', dot: '#C77DFF' },
   { path: '/matriculados', label: 'Matriculados', icon: 'enrolled', dot: '#3AA757' },
-  { path: '/assinatura-e-pagamento', label: 'Assinatura e pagamento', icon: 'signature', dot: '#3AA757' },
+  { path: '/assinaturas', label: 'Assinaturas', icon: 'signature', dot: '#3AA757' },
+  { section: 'Financeiro' },
+  { path: '/pagamentos', label: 'Pagamentos', icon: 'payment', dot: '#3A82C7' },
+  { path: '/financeiro/extrato', label: 'Extrato e caixa', icon: 'ledger', dot: '#3A82C7' },
+  { section: 'Sistema' },
   { path: '/configuracoes', label: 'Configurações', icon: 'settings', dot: '#A8B8E0' }
 ];
 
 const heads = {
+  '/jornadas': ['Campanha 2027', 'Jornadas das famílias'],
   '/dashboard': ['Campanha 2027', 'Visão geral da operação'],
-  '/familias': ['CRM operacional', 'Famílias na campanha'],
-  '/matriculas-novas': ['Entrada de novas famílias', 'Matrículas novas'],
+  '/familias': ['Campanha 2027', 'Famílias'],
   '/matriculados': ['Resultado da campanha', 'Matriculados'],
-  '/assinatura-e-pagamento': ['Conclusão da jornada', 'Assinatura digital e pagamento'],
+  '/assinaturas': ['Contratos', 'Assinaturas'],
+  '/pagamentos': ['Financeiro', 'Pagamentos'],
+  '/financeiro/extrato': ['Financeiro', 'Extrato do Asaas e caixa'],
   '/configuracoes': ['Cadastros da campanha', 'Configurações'],
   '/rematricula': ['Jornada online do responsável', 'Página individual de rematrícula'],
   '/matricula': ['Novas matrículas', 'Link público de pré-matrícula'],
@@ -38,6 +46,34 @@ function headFor(pathname) {
   return heads[pathname] || ['', ''];
 }
 
+function ago(value) {
+  if (!value) return 'sem mensagens ainda';
+  const minutes = Math.round((Date.now() - new Date(value).getTime()) / 60000);
+  if (minutes < 1) return 'agora';
+  if (minutes < 60) return `há ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  return hours < 24 ? `há ${hours} h` : `há ${Math.round(hours / 24)} dias`;
+}
+
+/** Atividade real do WhatsApp: fila de envio e última mensagem trocada. */
+function WhatsappPulse() {
+  const [pulse, setPulse] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => getWhatsappPulse().then((value) => { if (alive) setPulse(value); }).catch(() => {});
+    load();
+    const timer = window.setInterval(load, 60000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, []);
+  const recent = pulse?.lastMessageAt && Date.now() - new Date(pulse.lastMessageAt).getTime() < 3 * 3600000;
+  return (
+    <div className="status-box">
+      <div className="status-line"><span className={`dot ${recent ? 'dot-green' : 'dot-idle'}`} /> WhatsApp {recent ? 'ativo' : 'sem movimento recente'}</div>
+      <p>{pulse ? <>fila: {pulse.queue} na espera<br />última mensagem {ago(pulse.lastMessageAt)}</> : 'carregando…'}</p>
+    </div>
+  );
+}
+
 function Sidebar() {
   return (
     <aside className="sidebar">
@@ -46,8 +82,7 @@ function Sidebar() {
       </div>
 
       <nav className="nav">
-        <div className="nav-label">Operação</div>
-        {navigation.map((item) => (
+        {navigation.map((item) => item.section ? <div key={item.section} className="nav-label">{item.section}</div> : (
           <NavLink
             key={item.path}
             to={item.path}
@@ -60,12 +95,7 @@ function Sidebar() {
         ))}
       </nav>
 
-      <div className="sidebar-foot">
-        <div className="status-box">
-          <div className="status-line"><span className="dot dot-green" /> WhatsApp conectado</div>
-          <p>fila: 34 na espera<br />último envio há 2 min</p>
-        </div>
-      </div>
+      <div className="sidebar-foot"><WhatsappPulse /></div>
     </aside>
   );
 }

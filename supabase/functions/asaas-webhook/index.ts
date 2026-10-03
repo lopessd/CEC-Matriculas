@@ -60,8 +60,10 @@ function paymentStatusFor(eventName: string) {
     case "PAYMENT_OVERDUE":
       return "vencido";
     case "PAYMENT_REFUNDED":
-    case "PAYMENT_RECEIVED_IN_CASH_UNDONE":
       return "estornado";
+    // Baixa em dinheiro desfeita: a parcela volta a ficar em aberto.
+    case "PAYMENT_RECEIVED_IN_CASH_UNDONE":
+      return "pendente";
     case "PAYMENT_DELETED":
       return "cancelado";
     default:
@@ -153,7 +155,12 @@ Deno.serve(async (request) => {
         if (targetStatus === installment.status) continue;
         // O cancelamento que nós mesmos pedimos ao vencer não apaga o "vencido".
         if (targetStatus === "cancelado" && installment.status === "vencido") continue;
+        if (targetStatus === "pendente" && installment.status !== "pago") continue;
         const update: Record<string, unknown> = { status: targetStatus };
+        if (targetStatus === "pendente") {
+          update.paid_amount_cents = null;
+          update.paid_at = null;
+        }
         if (targetStatus === "pago") {
           update.paid_amount_cents = installment.amount_cents;
           update.paid_at = new Date().toISOString();

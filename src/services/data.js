@@ -35,6 +35,42 @@ export async function getDashboard() {
   return { campaigns, campaign, funnel: first(funnel), finance: first(finance), alerts: first(alerts), queue: first(queue) };
 }
 
+/** Fila de envio e última mensagem, para o rodapé do menu. */
+export async function getWhatsappPulse() {
+  const [queue, last] = await Promise.all([
+    supabase.select('message_queue', q({ select: 'id', status: 'in.(pendente,processando)' })),
+    supabase.select('messages', q({ select: 'created_at', order: 'created_at.desc', limit: '1' }))
+  ]);
+  return { queue: queue?.length || 0, lastMessageAt: first(last)?.created_at || null };
+}
+
+/** Números do dashboard (mesmas etapas do quadro de jornadas). */
+export function getDashboardStats() {
+  return supabase.rpc('staff_dashboard', {});
+}
+
+/** Move a família de etapa no quadro; stage nulo devolve ao automático. */
+export function setJourneyStage(kind, guardianId, stage, note) {
+  return supabase.rpc('staff_set_journey_stage', { p_kind: kind, p_guardian_id: guardianId, p_stage: stage || null, p_note: note || null });
+}
+
+/** Baixa manual de parcela (ou desfaz a baixa). */
+export function setInstallmentPaid(installmentId, paid, { method, paidOn, amountCents, notify } = {}) {
+  return supabase.rpc('staff_set_installment_paid', {
+    p_installment_id: installmentId,
+    p_paid: paid,
+    p_method: method || null,
+    p_paid_on: paidOn || null,
+    p_amount_cents: amountCents ?? null,
+    p_notify: Boolean(notify)
+  });
+}
+
+/** Quadro da campanha ativa: um card por família, na etapa real da jornada. */
+export function getJourneyBoard(kind = 'rematricula') {
+  return supabase.rpc('staff_journey_board', { p_kind: kind });
+}
+
 export async function getEnrollments({ kind } = {}) {
   const filter = { select: '*', order: 'updated_at.desc' };
   if (kind) filter.campaign_kind = eq(kind);
@@ -341,6 +377,24 @@ export function getContractSessions() {
   return supabase.select('v_contract_sessions', q({ select: '*', order: 'updated_at.desc' }));
 }
 
+export function getSignatureRecords() {
+  return supabase.select('document_acceptances', q({
+    select: 'id,enrollment_id,status,provider,signer_full_name,signer_email,email_verified_at,completed_at,signed_pdf_at,generated_at,signed_storage_path,generation_data,document_versions(version,documents(title))',
+    signed_storage_path: 'not.is.null', order: 'signed_pdf_at.desc'
+  }));
+}
+
+export function getInstallmentRecords() {
+  return supabase.select('installments', q({ select: '*', order: 'due_date.asc' }));
+}
+
+export async function getSignedContractFile(path) {
+  if (!path?.startsWith('contracts/') || !path.endsWith('assinado.pdf')) {
+    throw new Error('Arquivo assinado indisponível.');
+  }
+  return supabase.downloadStorageObject('contract-files', path);
+}
+
 export function getPaymentPlans(campaignId) {
   if (!campaignId) return Promise.resolve([]);
   return supabase.select('payment_plans', q({ select: '*', campaign_id: eq(campaignId), active: eq('true'), order: 'sort_order.asc' }));
@@ -365,4 +419,40 @@ export async function createStaffEnrollment(values) {
     p_relationship: values.relationship || null,
     p_guardian_notes: values.notes || null
   });
+}
+
+/** Ficha completa da família (aceita o id do responsável ou de uma matrícula). */
+export function getFamilyDetail(id) {
+  return supabase.rpc('staff_family_detail', { p_id: id });
+}
+
+/** Forma de pagamento da família na campanha ativa (antes ou depois da assinatura). */
+export function setFamilyBilling(guardianId, method) {
+  return supabase.rpc('staff_set_family_billing', { p_guardian_id: guardianId, p_method: method });
+}
+
+/** Parcelas com família, aluno e campanha. */
+export function getInstallmentList() {
+  return supabase.select('v_installment_list', q({ select: '*', order: 'due_date.asc' }));
+}
+
+/** Livro financeiro: recebimentos, estornos, vínculos e caixa físico. */
+export function getFinanceLedger({ from, to } = {}) {
+  const filter = { select: '*', order: 'occurred_at.desc', limit: '500' };
+  if (from && to) filter.and = `(occurred_at.gte.${from}T00:00:00-03:00,occurred_at.lte.${to}T23:59:59-03:00)`;
+  return supabase.select('v_finance_ledger', q(filter));
+}
+
+export function addCashMovement({ kind, amountCents, description, occurredOn }) {
+  return supabase.rpc('staff_add_cash_movement', {
+    p_kind: kind, p_amount_cents: amountCents, p_description: description, p_occurred_on: occurredOn || null
+  });
+}
+
+/**
+ * Asaas pelo painel (Edge Function asaas-admin): status, sync, link, unlink,
+ * receive, undo, statement, customer, create_charges.
+ */
+export function asaasAdmin(action, payload = {}) {
+  return supabase.invokeFunction('asaas-admin', { action, ...payload });
 }

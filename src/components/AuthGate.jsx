@@ -42,6 +42,12 @@ export default function AuthGate({ children }) {
   }
 
   if (profileState.loading) return <div className="notice">Validando acesso da equipe…</div>;
+  // Sessão vencida (a renovação falhou e apagou o login): volta para a tela de
+  // entrar em vez de mostrar "acesso pendente".
+  if (!supabase.getSession()) {
+    setTimeout(() => setSession(null), 0);
+    return <div className="notice">Sua sessão expirou. Entre novamente…</div>;
+  }
   if (profileState.error || !profileState.data?.active) {
     return <main className="auth-page"><section className="auth-card">
       <h1>Acesso pendente</h1>

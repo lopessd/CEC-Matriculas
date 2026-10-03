@@ -39,6 +39,18 @@ const SHAPES = {
       <path d="m9.2 15.4 1.9 1.9 3.7-3.9" />
     </>
   ),
+  payment: (
+    <>
+      <rect x="2.5" y="5" width="19" height="14" rx="2" />
+      <path d="M2.5 9.5h19M6 15h4" />
+    </>
+  ),
+  ledger: (
+    <>
+      <path d="M6 3h12a1.5 1.5 0 0 1 1.5 1.5V21l-3-1.8-3 1.8-3-1.8-3 1.8-3-1.8V4.5A1.5 1.5 0 0 1 6 3Z" />
+      <path d="M8.5 8h7M8.5 12h7M8.5 16h4" />
+    </>
+  ),
   settings: (
     <>
       <circle cx="12" cy="12" r="3.2" />
@@ -49,6 +61,13 @@ const SHAPES = {
     <>
       <path d="M10 13.5a4 4 0 0 0 6 .5l2.5-2.5a4 4 0 0 0-5.7-5.7L11.4 7.2" />
       <path d="M14 10.5a4 4 0 0 0-6-.5l-2.5 2.5a4 4 0 0 0 5.7 5.7l1.4-1.4" />
+    </>
+  ),
+  board: (
+    <>
+      <rect x="3" y="3.5" width="5" height="17" rx="1.6" />
+      <rect x="9.5" y="3.5" width="5" height="11" rx="1.6" />
+      <rect x="16" y="3.5" width="5" height="14" rx="1.6" />
     </>
   ),
   sparkle: (

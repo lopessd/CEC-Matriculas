@@ -4,6 +4,12 @@ import { useAsyncData } from '../hooks/useAsyncData';
 import { getSettings } from '../services/data';
 import { date, money } from '../lib/format';
 
+const shiftNames = { manha: 'Manhã', tarde: 'Tarde', noite: 'Noite', integral: 'Integral' };
+function formatShifts(shifts) {
+  const values = Array.isArray(shifts) ? shifts : String(shifts || '').replace(/[{}]/g, '').split(',');
+  return values.filter(Boolean).map((value) => shiftNames[value] || value).join(' · ') || '—';
+}
+
 export default function Configuracoes() {
   const { loading, data, error } = useAsyncData(getSettings, []);
   const closingRule = [
@@ -12,7 +18,7 @@ export default function Configuracoes() {
   ];
   const paymentRules = [
     ['Parcelamento', 'Até janeiro', 'Até 31/10: 3 parcelas em novembro, dezembro e janeiro. Depois: pagamento único em janeiro.'],
-    ['Formas aceitas', 'Cartão · Pix', 'A cobrança será enviada no meio escolhido pelo responsável.']
+    ['Formas aceitas', 'Boleto · Cartão · Pix', 'A cobrança será enviada no meio escolhido pelo responsável.']
   ];
 
   return <DataState loading={loading} error={error} empty={!loading && !error && !data?.campaign}>
@@ -20,8 +26,8 @@ export default function Configuracoes() {
     <div className="grid grid--2">{closingRule.map(([label, value, sub]) => <Tile key={label} label={label} value={value} sub={sub} />)}</div>
     <div className="table">
       <div className="table-title"><div className="card-title">Valores de rematrícula {data?.campaign?.academic_year}</div><div className="card-sub">A tabela abaixo é aplicada automaticamente conforme a data de fechamento.</div></div>
-      <div className="table-head cols-pricing"><div>Série</div><div>Até 31/10 · valor 2026</div><div>A partir de 01/11 · valor 2027</div><div>Valor vigente hoje</div></div>
-      {(data?.offerings || []).map((item) => <div className="table-row cols-pricing" style={{ cursor: 'default' }} key={item.offering_id}><div className="cell-strong">{item.grade_name}</div><div className="cell">{money(item.early_amount_cents)}</div><div className="cell">{money(item.amount_cents)}</div><div className="cell-strong" style={{ color: 'var(--navy)' }}>{money(item.current_amount_cents)}</div></div>)}
+      <div className="table-head cols-pricing"><div>Série</div><div>Turno</div><div>Até 31/10 · valor 2026</div><div>A partir de 01/11 · valor 2027</div><div>Valor vigente hoje</div></div>
+      {(data?.offerings || []).map((item) => <div className="table-row cols-pricing" style={{ cursor: 'default' }} key={item.offering_id}><div className="cell-strong">{item.grade_name}</div><div className="cell">{formatShifts(item.shifts)}</div><div className="cell">{money(item.early_amount_cents)}</div><div className="cell">{money(item.amount_cents)}</div><div className="cell-strong" style={{ color: 'var(--navy)' }}>{money(item.current_amount_cents)}</div></div>)}
     </div>
     <div className="card"><div className="card-title">Condições de pagamento</div><div className="grid grid--2" style={{ marginTop: 16 }}>{paymentRules.map(([label, value, sub]) => <Tile key={label} label={label} value={value} sub={sub} />)}</div></div>
     <div className="grid grid--main">
