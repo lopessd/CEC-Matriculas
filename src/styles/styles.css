@@ -535,8 +535,14 @@ a:hover { color: var(--navy); }
 .onboarding-existing-family__children > strong { color: var(--navy); font-size: 12px; }
 .onboarding-existing-family__children > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--navy); font-size: 13px; font-weight: 700; }
 .onboarding-existing-family__children small { color: var(--ink-mute); font-size: 11.5px; font-weight: 500; text-align: right; }
+.onboarding-existing-family__child-action { display: flex; align-items: flex-end; flex-direction: column; gap: 5px; }
+.onboarding-existing-family__child-action .text-link { font-size: 11.5px; }
+.onboarding-existing-family__continue-enrollment { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 31px; padding: 6px 10px; border-color: #F1C9A8; border-radius: 9px; background: #FFF7F0; color: var(--orange-ink); font-size: 11px; white-space: nowrap; }
+.onboarding-existing-family__continue-enrollment:hover { border-color: var(--orange-deep); background: #FFF0E3; }
 .onboarding-existing-family__question { color: var(--navy) !important; font-weight: 700; }
 .onboarding-existing-family__actions { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 2px; }
+.onboarding-existing-family__rematricula { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 16px; border-radius: 12px; box-shadow: 0 5px 12px rgb(18 42 76 / .18); }
+.onboarding-existing-family__rematricula:hover { background: var(--navy-700); border-color: var(--navy-700); transform: translateY(-1px); }
 .text-link { border: 0; padding: 0; background: transparent; color: var(--orange-ink); cursor: pointer; font: inherit; font-size: 13px; font-weight: 700; text-decoration: underline; }
 .onboarding-guardian { border-left: 3px solid var(--orange-deep); padding: 4px 0 4px 12px; display: flex; flex-direction: column; gap: 3px; }
 .onboarding-guardian strong { font-size: 15px; color: var(--navy); }

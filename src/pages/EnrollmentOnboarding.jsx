@@ -16,6 +16,11 @@ import {
 const emptyChild = { name: '', birthDate: '', birthParts: { day: '', month: '', year: '' }, gradeId: '', previousSchool: '' };
 const newFamily = { cpf: '', fullName: '', rg: '', phone: '', email: '', address: '', children: [{ ...emptyChild }] };
 
+function birthPartsFromIso(value) {
+  const [year = '', month = '', day = ''] = String(value || '').split('-');
+  return { day: day ? String(Number(day)) : '', month: month ? String(Number(month)) : '', year };
+}
+
 // Erros do formulário de matrícula nova. Só aparecem depois que a pessoa sai
 // do campo (touched) ou tenta enviar, para não acusar erro no meio da digitação.
 function newFamilyErrors(family) {
@@ -101,7 +106,7 @@ function Title({ flow, stage, multi }) {
   return <div className="public-head--navy onboarding-head"><div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><LogoBlocks /><span className="public-kicker">{remat ? 'Rematrícula 2027' : 'Matrícula 2027'}</span></div><h2>{heading}</h2><p>Você pode fechar esta página e continuar depois pelo mesmo link: ela abre na etapa em que você parou.</p></div>;
 }
 
-function ExistingFamilyMatch({ match, busy, onStartRematricula, onContinueNewEnrollment }) {
+function ExistingFamilyMatch({ match, busy, onStartRematricula, onContinueNewEnrollment, onContinueExistingChild }) {
   if (!match?.found) return null;
   const children = match.children || [];
   return <div className="onboarding-existing-family-modal" role="dialog" aria-modal="true" aria-labelledby="existing-family-title">
@@ -110,10 +115,10 @@ function ExistingFamilyMatch({ match, busy, onStartRematricula, onContinueNewEnr
       <span className="onboarding-existing-family__eyebrow">Cadastro localizado</span>
       <h3 id="existing-family-title">{match.guardian?.name}, este é o seu nome?</h3>
       <p>Encontramos este responsável usando o CPF ou WhatsApp informado.</p>
-      {children.length ? <div className="onboarding-existing-family__children"><strong>Estes alunos estão vinculados a este cadastro:</strong>{children.map((child) => <div key={`${child.name}-${child.current_grade || ''}`}><span>{child.name}</span><small>{child.current_grade ? `${child.current_grade} → ${child.target_grade || 'série a confirmar'}` : 'Série a confirmar'}</small></div>)}</div> : null}
-      <p className="onboarding-existing-family__question">{children.length ? 'Você deseja fazer a rematrícula de algum deles?' : 'Quer usar este cadastro para uma rematrícula?'}</p>
+      {children.length ? <div className="onboarding-existing-family__children"><strong>Qual filho deseja matricular?</strong>{children.map((child) => <div key={child.student_id || `${child.name}-${child.current_grade || ''}`}><span>{child.name}</span><div className="onboarding-existing-family__child-action"><small>{child.current_grade ? `${child.current_grade} → ${child.target_grade || 'série a confirmar'}` : child.target_grade || 'Série a confirmar'}</small><button type="button" className="btn onboarding-existing-family__continue-enrollment" onClick={() => onContinueExistingChild(child)} disabled={busy}><span>Continuar matrícula</span><span aria-hidden="true">→</span></button></div></div>)}</div> : null}
+      <p className="onboarding-existing-family__question">{children.length ? 'Se este aluno já estuda no CEC, a opção correta é a rematrícula.' : 'Quer usar este cadastro para uma rematrícula?'}</p>
       <div className="onboarding-existing-family__actions">
-        <button type="button" className="btn btn--primary" onClick={onStartRematricula} disabled={busy}>{busy ? 'Abrindo rematrícula…' : 'Sim, quero fazer rematrícula'}</button>
+        <button type="button" className="btn btn--primary onboarding-existing-family__rematricula" onClick={onStartRematricula} disabled={busy}>{busy ? 'Abrindo rematrícula…' : <><span>Sim, quero fazer rematrícula</span><span aria-hidden="true">→</span></>}</button>
         <button type="button" className="btn" onClick={onContinueNewEnrollment} disabled={busy}>Não, quero matricular outro filho</button>
       </div>
     </section>
@@ -172,8 +177,15 @@ export default function EnrollmentOnboarding({ initialFlow = null }) {
     const timer = window.setTimeout(() => {
       setExistingFamilyLoading(true);
       lookupExistingFamilyForNewEnrollment(token, family)
-        .then((result) => current && setExistingFamily(result?.found ? result : null))
-        .catch(() => current && setExistingFamily(null))
+        .then((result) => {
+          if (!current) return;
+          const match = result?.found ? result : null;
+          setExistingFamily(match);
+        })
+        .catch(() => {
+          if (!current) return;
+          setExistingFamily(null);
+        })
         .finally(() => current && setExistingFamilyLoading(false));
     }, 500);
     return () => { current = false; window.clearTimeout(timer); };
@@ -218,19 +230,42 @@ export default function EnrollmentOnboarding({ initialFlow = null }) {
     }, 'Não foi possível abrir a rematrícula desta família.');
   }
   function continueWithNewChild() {
+    const match = existingFamily;
+    setFamily((current) => ({
+      ...current,
+      cpf: formatCpf(match?.guardian?.cpf || current.cpf),
+      fullName: match?.guardian?.name || current.fullName,
+      phone: formatPhoneBr(match?.guardian?.phone || current.phone),
+      email: match?.guardian?.email || current.email,
+      address: match?.guardian?.address || current.address
+    }));
+    setExistingFamily(null);
+  }
+  function continueWithExistingChild(child) {
+    if (!child) return;
     setFamily((current) => ({
       ...current,
       cpf: formatCpf(existingFamily?.guardian?.cpf || current.cpf),
       fullName: existingFamily?.guardian?.name || current.fullName,
       phone: formatPhoneBr(existingFamily?.guardian?.phone || current.phone),
       email: existingFamily?.guardian?.email || current.email,
-      address: existingFamily?.guardian?.address || current.address
+      address: existingFamily?.guardian?.address || current.address,
+      children: [{
+        ...current.children[0],
+        name: child.name || current.children[0].name,
+        birthDate: child.birth_date || current.children[0].birthDate,
+        birthParts: child.birth_date ? birthPartsFromIso(child.birth_date) : current.children[0].birthParts,
+        gradeId: child.target_grade_id || current.children[0].gradeId,
+        previousSchool: child.previous_school || current.children[0].previousSchool
+      }]
     }));
     setExistingFamily(null);
   }
   function updateNewFamily(field, value) {
     setFamily((current) => ({ ...current, [field]: value }));
-    if (field === 'cpf' || field === 'phone') setExistingFamily(null);
+    if (field === 'cpf' || field === 'phone') {
+      setExistingFamily(null);
+    }
   }
   function sign(sharedToken) {
     if (sharedToken) { navigate(`/contrato/${sharedToken}?j=${encodeURIComponent(token)}&f=${flow}`); return; }
@@ -299,7 +334,7 @@ export default function EnrollmentOnboarding({ initialFlow = null }) {
         <div onBlur={touch('phone')}><Field label="WhatsApp" ph="(33) 9 9999-9999" value={family.phone} onChange={(value) => updateNewFamily('phone', formatPhoneBr(value))} inputMode="tel" maxLength={16} required /><FieldError show={show('phone')} message={errors.phone} /></div>
         <div onBlur={touch('email')}><Field label="E-mail" type="email" ph="nome@gmail.com" value={family.email} onChange={(value) => updateNewFamily('email', value.trim())} inputMode="email" required /><FieldError show={show('email')} message={errors.email} /></div>
       </div>
-      <div className="onboarding-address" onBlur={touch('address')}><h3>Endereço do responsável</h3><AddressFields key={existingFamily ? 'existente' : 'novo'} value={family.address} onChange={(value) => updateNewFamily('address', value)} /><FieldError show={show('address')} message={errors.address} /></div>{existingFamilyLoading ? <span className="meta">Verificando se já existe um cadastro com estes dados…</span> : null}<ExistingFamilyMatch match={existingFamily} busy={busy} onStartRematricula={startMatchedRematricula} onContinueNewEnrollment={continueWithNewChild} /><div className="onboarding-child-editor"><div><h3>Alunos</h3><p>Inclua todos os filhos que deseja matricular agora.</p></div>{family.children.map((child, index) => <div className="onboarding-child-fields" key={index}>
+      <div className="onboarding-address" onBlur={touch('address')}><h3>Endereço do responsável</h3><AddressFields key={existingFamily ? 'existente' : 'novo'} value={family.address} onChange={(value) => updateNewFamily('address', value)} /><FieldError show={show('address')} message={errors.address} /></div>{existingFamilyLoading ? <span className="meta">Verificando se já existe um cadastro com estes dados…</span> : null}<ExistingFamilyMatch match={existingFamily} busy={busy} onStartRematricula={startMatchedRematricula} onContinueNewEnrollment={continueWithNewChild} onContinueExistingChild={continueWithExistingChild} /><div className="onboarding-child-editor"><div><h3>Alunos</h3><p>Inclua todos os filhos que deseja matricular agora.</p></div>{family.children.map((child, index) => <div className="onboarding-child-fields" key={index}>
         <Field label="Nome completo do aluno" value={child.name} onChange={(value) => updateChild(index, 'name', value)} required />
         <Field label="Série pretendida" type="select" options={gradeOptions} value={child.gradeId} onChange={(value) => updateChild(index, 'gradeId', value)} required />
         <div onBlur={touch(`birth${index}`)}><BirthDateSelect parts={child.birthParts} onChange={(parts, iso) => updateBirthDate(index, parts, iso)} /><FieldError show={show(`birth${index}`)} message={errors.children[index]} /></div>
