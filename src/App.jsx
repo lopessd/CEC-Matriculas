@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Jornadas from './pages/Jornadas';
+import FollowUp from './pages/FollowUp';
 import Familias from './pages/Familias';
 import FamilyDetail from './pages/FamilyDetail';
 import Matriculados from './pages/Matriculados';
@@ -36,6 +37,7 @@ export default function App() {
         <Route index element={<Navigate to="/jornadas" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="jornadas" element={<Jornadas />} />
+        <Route path="follow-up" element={<FollowUp />} />
         <Route path="links" element={<LinkGenerator />} />
 
         <Route path="familias" element={<Familias />} />

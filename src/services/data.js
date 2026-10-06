@@ -71,6 +71,11 @@ export function getJourneyBoard(kind = 'rematricula') {
   return supabase.rpc('staff_journey_board', { p_kind: kind });
 }
 
+/** Aba de teste: levantamento das conversas do WhatsApp (debug_followup_review). */
+export function getDebugFollowup(snapshot) {
+  return supabase.rpc('staff_debug_followup', { p_snapshot: snapshot || null });
+}
+
 export async function getEnrollments({ kind } = {}) {
   const filter = { select: '*', order: 'updated_at.desc' };
   if (kind) filter.campaign_kind = eq(kind);
