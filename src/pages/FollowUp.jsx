@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import MessageComposer, { ConfirmModal } from '../components/MessageComposer';
-import { getDebugFollowup, setFollowupHidden } from '../services/data';
+import { getDebugFollowup, setFollowupStatus } from '../services/data';
 
 /* TESTE / DEBUG — levantamento manual das conversas do WhatsApp (uazapi).
    Os dados vêm de `debug_followup_review`, carregada fora do painel; a RPC
@@ -82,6 +82,8 @@ const TYPE = {
 };
 
 const HIDE_REASONS = ['Equipe da escola', 'Outro setor / curso técnico', 'Fornecedor', 'Robô ou empresa', 'Família: não seguir agora', 'Já resolvido', 'Outro'];
+// Para esses motivos a IA não tem o que responder: a caixa já vem marcada.
+const AI_OFF_REASONS = new Set(['Equipe da escola', 'Outro setor / curso técnico', 'Fornecedor', 'Robô ou empresa']);
 // Categorias em que a mensagem natural é chamar para a rematrícula.
 const REMAT_CATS = new Set(['link_parado', 'pai_sumiu', 'combinado', 'adiou', 'nao_identificado']);
 
@@ -130,6 +132,7 @@ function Row({ row, selected, onToggle, onOpen }) {
         <span className="meta">{WHO[row.ultima_msg_de] || '—'} · {ago(row.ultima_msg_em)}</span>
         {row.ultimo_envio_painel ? <span className="fu-sent">Enviada pelo painel {ago(row.ultimo_envio_painel.at)}{row.ultimo_envio_painel.by ? ` · ${row.ultimo_envio_painel.by.split(' ')[0]}` : ''}</span> : null}
         <div className="fu-flags">
+          {row.ia_desligada ? <span className="kpill kpill--off">IA desligada</span> : null}
           {row.identificacao !== 'base' ? <span className="kpill kpill--human">{IDENT[row.identificacao]}</span> : null}
           {(row.flags || []).filter((f) => HOT.has(f)).map((f) => <span key={f} className="kpill kpill--hot">{FLAG[f] || f}</span>)}
         </div>
@@ -142,11 +145,17 @@ function Row({ row, selected, onToggle, onOpen }) {
 function HideModal({ rows, hidden, onDone, onClose }) {
   const [reason, setReason] = useState(HIDE_REASONS[0]);
   const [note, setNote] = useState('');
+  const [aiOff, setAiOff] = useState(AI_OFF_REASONS.has(HIDE_REASONS[0]));
   const [state, setState] = useState({ busy: false, error: '' });
+  const aiOffCount = rows.filter((r) => r.ia_desligada).length;
+  function pickReason(value) {
+    setReason(value);
+    setAiOff(AI_OFF_REASONS.has(value));
+  }
   async function confirm() {
     setState({ busy: true, error: '' });
     try {
-      await setFollowupHidden(rows.map((r) => r.phone), hidden, hidden ? reason : null, hidden ? note : null);
+      await setFollowupStatus(rows.map((r) => r.phone), hidden, { aiOff, reason, note });
       onDone();
     } catch (err) {
       setState({ busy: false, error: err.message || 'Não foi possível salvar.' });
@@ -164,15 +173,22 @@ function HideModal({ rows, hidden, onDone, onClose }) {
     >
       <p className="cmodal-text">{hidden
         ? 'Sai desta lista e fica guardado em “Desativados”. Não muda nada na IA, na conversa nem na jornada.'
-        : 'Volta para a lista do follow-up.'}</p>
+        : `Volta para a lista do follow-up.${aiOffCount ? ` A IA volta a responder ${aiOffCount > 1 ? `${aiOffCount} desses números` : 'este número'}, como era antes.` : ''}`}</p>
       <ul className="cmodal-list">{rows.slice(0, 12).map((r) => <li key={r.phone}><strong>{displayName(r)}</strong> <span>{r.phone}</span></li>)}{rows.length > 12 ? <li>+{rows.length - 12} outros</li> : null}</ul>
       {hidden ? (
         <div className="cmodal-fields">
           <label>Motivo
-            <select className="control" value={reason} onChange={(event) => setReason(event.target.value)}>{HIDE_REASONS.map((r) => <option key={r}>{r}</option>)}</select>
+            <select className="control" value={reason} onChange={(event) => pickReason(event.target.value)}>{HIDE_REASONS.map((r) => <option key={r}>{r}</option>)}</select>
           </label>
           <label>Observação (opcional)
             <input className="control" value={note} maxLength={200} placeholder="ex.: é a Nilza do financeiro" onChange={(event) => setNote(event.target.value)} />
+          </label>
+          <label className={`cmodal-switch${aiOff ? ' is-on' : ''}`}>
+            <input type="checkbox" checked={aiOff} onChange={(event) => setAiOff(event.target.checked)} />
+            <span>
+              <strong>A IA também para de responder {rows.length > 1 ? 'esses números' : 'este número'}</strong>
+              <small>As mensagens continuam chegando e ficam salvas; ninguém recebe resposta automática. Reativar devolve a IA.</small>
+            </span>
           </label>
         </div>
       ) : null}
@@ -211,7 +227,7 @@ function Drawer({ row, onClose, onHide, onReload }) {
     ['Alunos (base)', row.alunos_base || '—'],
     row.alunos_hint ? ['Alunos (achados pelo nome)', row.alunos_hint] : null,
     ['Etapa agora', row.etapa_agora || 'sem jornada'],
-    ['Atendimento agora', row.atendimento_agora === 'humano' ? 'Equipe (IA pausada)' : row.atendimento_agora === 'ia' ? 'IA' : '—'],
+    ['Atendimento agora', row.ia_desligada ? 'IA desligada pelo follow-up' : row.atendimento_agora === 'humano' ? 'Equipe (IA pausada)' : row.atendimento_agora === 'ia' ? 'IA' : row.atendimento_agora === 'encerrada' ? 'Encerrada' : '—'],
     ['Esperando', WAITING[row.aguardando]],
     ['Última mensagem', `${WHO[row.ultima_msg_de] || '—'} · ${fmt(row.ultima_msg_em)}`],
     ['Última da família', fmt(row.ultima_msg_familia_em)],
@@ -232,7 +248,7 @@ function Drawer({ row, onClose, onHide, onReload }) {
           <button type="button" className="modal-close" aria-label="Fechar" onClick={onClose}>×</button>
         </div>
         {row.oculto ? (
-          <div className="notice notice--soft"><p><strong>Desativado do follow-up</strong> · {row.oculto_motivo || 'sem motivo'}{row.oculto_nota ? ` — ${row.oculto_nota}` : ''}{row.oculto_por ? ` · por ${row.oculto_por}` : ''} · {fmt(row.oculto_em)}</p></div>
+          <div className="notice notice--soft"><p><strong>Desativado do follow-up{row.ia_desligada ? ' · IA desligada' : ''}</strong> · {row.oculto_motivo || 'sem motivo'}{row.oculto_nota ? ` — ${row.oculto_nota}` : ''}{row.oculto_por ? ` · por ${row.oculto_por}` : ''} · {fmt(row.oculto_em)}</p></div>
         ) : null}
         <div className="kdrawer-actions">
           {row.guardian_id ? <button type="button" className="btn" onClick={() => navigate(`/familias/${row.guardian_id}`)}>Ver ficha</button> : null}

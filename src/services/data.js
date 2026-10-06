@@ -76,9 +76,12 @@ export function getDebugFollowup(snapshot) {
   return supabase.rpc('staff_debug_followup', { p_snapshot: snapshot || null });
 }
 
-/** Tira (ou devolve) números da aba Follow-up. Só visual: não mexe na IA. */
-export function setFollowupHidden(phones, hidden, reason, note) {
-  return supabase.rpc('staff_followup_set_hidden', { p_phones: phones, p_hidden: hidden, p_reason: reason || null, p_note: note || null });
+/**
+ * Tira (ou devolve) números da aba Follow-up. Com `aiOff`, a IA também para de
+ * responder (conversa fica `encerrada`); reativar devolve o atendimento anterior.
+ */
+export function setFollowupStatus(phones, hidden, { aiOff = false, reason, note } = {}) {
+  return supabase.rpc('staff_followup_set_status', { p_phones: phones, p_hidden: hidden, p_ai_off: Boolean(hidden && aiOff), p_reason: reason || null, p_note: note || null });
 }
 
 /** WhatsApp pelo painel (Edge Function staff-whatsapp): sugestão da IA e envio pela UAZAPI. */

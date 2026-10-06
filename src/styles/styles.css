@@ -1535,3 +1535,10 @@ a:hover { color: var(--navy); }
 .kinvite-text:focus { outline: none; border-color: var(--navy-500); background: #fff; box-shadow: 0 0 0 3px rgb(74 123 216 / .12); }
 .kinvite-text::placeholder { color: var(--ink-faint); }
 @media (max-width: 520px) { .mcomposer-ai { flex-wrap: wrap; } .mcomposer-ai .btn { width: 100%; } }
+.kpill--off { background: #F1EEF8; color: var(--purple-ink); border-color: #DDD3EE; }
+.cmodal-switch { display: flex !important; flex-direction: row !important; align-items: flex-start; gap: 10px !important; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); cursor: pointer; text-transform: none !important; letter-spacing: normal !important; font-weight: 600 !important; }
+.cmodal-switch.is-on { border-color: #DDD3EE; background: #F7F4FC; }
+.cmodal-switch input { width: 17px; height: 17px; margin-top: 2px; accent-color: var(--purple-ink); flex: none; cursor: pointer; }
+.cmodal-switch span { display: flex; flex-direction: column; gap: 3px; }
+.cmodal-switch strong { font-size: 13.5px; color: var(--navy); }
+.cmodal-switch small { font-size: 12px; color: var(--ink-mute); line-height: 1.45; }

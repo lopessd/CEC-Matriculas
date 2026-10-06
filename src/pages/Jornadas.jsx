@@ -385,7 +385,7 @@ function CardDrawer({ card, kind, stageLabel, stageColor, onClose, columns, curr
         {card.conversation_id ? (
           <section className="kdrawer-section">
             <h3>Conversa no WhatsApp</h3>
-            <div className="kdrawer-kv"><span>Atendimento</span><strong>{card.handler === 'humano' ? 'Equipe' : 'IA'}</strong></div>
+            <div className="kdrawer-kv"><span>Atendimento</span><strong>{card.handler === 'humano' ? 'Equipe' : card.handler === 'encerrada' ? 'IA desligada' : 'IA'}</strong></div>
             {card.last_message_at ? <div className="kdrawer-kv"><span>Última mensagem</span><strong>{timeAgo(card.last_message_at)}</strong></div> : null}
             {card.ai_summary ? <p className="kdrawer-summary">{card.ai_summary}</p> : null}
             {card.last_message_preview ? <blockquote className="kdrawer-quote">{card.last_message_preview}</blockquote> : null}
