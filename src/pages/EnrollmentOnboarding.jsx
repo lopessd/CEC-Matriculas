@@ -234,7 +234,7 @@ export default function EnrollmentOnboarding({ initialFlow = null }) {
     setFamily((current) => ({
       ...current,
       cpf: formatCpf(match?.guardian?.cpf || current.cpf),
-      fullName: match?.guardian?.name || current.fullName,
+      fullName: current.fullName.trim() || match?.guardian?.name || '',
       phone: formatPhoneBr(match?.guardian?.phone || current.phone),
       email: match?.guardian?.email || current.email,
       address: match?.guardian?.address || current.address
@@ -246,7 +246,7 @@ export default function EnrollmentOnboarding({ initialFlow = null }) {
     setFamily((current) => ({
       ...current,
       cpf: formatCpf(existingFamily?.guardian?.cpf || current.cpf),
-      fullName: existingFamily?.guardian?.name || current.fullName,
+      fullName: current.fullName.trim() || existingFamily?.guardian?.name || '',
       phone: formatPhoneBr(existingFamily?.guardian?.phone || current.phone),
       email: existingFamily?.guardian?.email || current.email,
       address: existingFamily?.guardian?.address || current.address,

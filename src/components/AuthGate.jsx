@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { useEffect, useState } from 'react';
+import { supabase, SESSION_EXPIRED_EVENT } from '../lib/supabase';
 import { getCurrentProfile } from '../services/data';
 import { useAsyncData } from '../hooks/useAsyncData';
 
@@ -9,6 +9,13 @@ export default function AuthGate({ children }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const profileState = useAsyncData(getCurrentProfile, [session?.access_token]);
+
+  // A renovação falhou em qualquer tela: volta para o login com o aviso.
+  useEffect(() => {
+    const onExpired = () => { setSession(null); setError('Sua sessão expirou. Entre novamente.'); };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, []);
 
   async function signIn(event) {
     event.preventDefault();
@@ -48,7 +55,16 @@ export default function AuthGate({ children }) {
     setTimeout(() => setSession(null), 0);
     return <div className="notice">Sua sessão expirou. Entre novamente…</div>;
   }
-  if (profileState.error || !profileState.data?.active) {
+  // Erro de rede ou do Supabase não é falta de permissão.
+  if (profileState.error) {
+    return <main className="auth-page"><section className="auth-card">
+      <h1>Não foi possível validar o acesso</h1>
+      <p>{profileState.error}</p>
+      <button className="btn btn--primary" type="button" onClick={profileState.refresh}>Tentar de novo</button>
+      <button className="btn" type="button" onClick={async () => { await supabase.signOut(); setSession(null); }}>Entrar novamente</button>
+    </section></main>;
+  }
+  if (!profileState.data?.active) {
     return <main className="auth-page"><section className="auth-card">
       <h1>Acesso pendente</h1>
       <p>Esta conta ainda não tem um perfil de equipe ativo. Peça a um administrador para liberá-la.</p>
