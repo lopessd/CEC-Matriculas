@@ -76,6 +76,20 @@ export function getDebugFollowup(snapshot) {
   return supabase.rpc('staff_debug_followup', { p_snapshot: snapshot || null });
 }
 
+/** Tira (ou devolve) números da aba Follow-up. Só visual: não mexe na IA. */
+export function setFollowupHidden(phones, hidden, reason, note) {
+  return supabase.rpc('staff_followup_set_hidden', { p_phones: phones, p_hidden: hidden, p_reason: reason || null, p_note: note || null });
+}
+
+/** WhatsApp pelo painel (Edge Function staff-whatsapp): sugestão da IA e envio pela UAZAPI. */
+export function suggestStaffMessage({ phone, guardianId, purpose, instruction }) {
+  return supabase.invokeFunction('staff-whatsapp', { action: 'suggest', phone, guardian_id: guardianId || null, purpose, instruction: instruction || null });
+}
+
+export function sendStaffWhatsapp({ phone, guardianId, text }) {
+  return supabase.invokeFunction('staff-whatsapp', { action: 'send', phone, guardian_id: guardianId || null, text });
+}
+
 export async function getEnrollments({ kind } = {}) {
   const filter = { select: '*', order: 'updated_at.desc' };
   if (kind) filter.campaign_kind = eq(kind);

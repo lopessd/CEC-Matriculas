@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '../components/ui';
+import MessageComposer from '../components/MessageComposer';
 import { getJourneyBoard, setInstallmentPaid, setJourneyStage, staffRematriculaInvite } from '../services/data';
 import { date as formatDate, money } from '../lib/format';
 import { COLUMNS, KINDS } from '../lib/journey';
@@ -89,45 +90,38 @@ function inviteMessage(invite, link) {
 }
 
 function RematriculaInvite({ card, onGenerated }) {
-  const [state, setState] = useState({ busy: false, error: '', text: '', copied: false });
+  const [state, setState] = useState({ busy: false, error: '', text: '' });
 
   async function generate() {
     setState((current) => ({ ...current, busy: true, error: '' }));
     try {
       const invite = await staffRematriculaInvite(card.guardian_id);
       const link = journeyUrl({ token: invite.token, flow: invite.flow || 'rematricula' });
-      setState({ busy: false, error: '', text: inviteMessage(invite, link), copied: false });
+      setState({ busy: false, error: '', text: inviteMessage(invite, link) });
       onGenerated?.();
     } catch (err) {
       setState((current) => ({ ...current, busy: false, error: err.message || 'Não foi possível gerar a rematrícula.' }));
     }
   }
 
-  async function copy() {
-    await navigator.clipboard?.writeText(state.text);
-    setState((current) => ({ ...current, copied: true }));
-    window.setTimeout(() => setState((current) => ({ ...current, copied: false })), 1800);
+  if (state.text) {
+    return (
+      <MessageComposer
+        phone={card.guardian_phone}
+        guardianId={card.guardian_id}
+        name={properName(card.guardian_name)}
+        initialText={state.text}
+        purpose="rematricula"
+        title="Rematrícula pelo WhatsApp"
+        onSent={onGenerated}
+      />
+    );
   }
-
-  const wa = whatsappUrl(card.guardian_phone, state.text);
   return (
     <section className="kdrawer-section kinvite">
       <h3>Rematrícula pelo WhatsApp</h3>
-      {!state.text ? (
-        <>
-          <p className="meta">Gera o link da família e uma mensagem pronta com os alunos, a série de 2027, o valor e o passo a passo.</p>
-          <button type="button" className="btn btn--primary" disabled={state.busy} onClick={generate}>{state.busy ? 'Gerando…' : 'Gerar rematrícula e mensagem'}</button>
-        </>
-      ) : (
-        <>
-          <textarea className="kinvite-text" value={state.text} rows={14} onChange={(event) => setState((current) => ({ ...current, text: event.target.value }))} />
-          <div className="kdrawer-actions">
-            {wa ? <a className="btn btn--primary" href={wa} target="_blank" rel="noreferrer">Enviar no WhatsApp</a> : null}
-            <button type="button" className="btn" onClick={copy}>{state.copied ? 'Mensagem copiada' : 'Copiar mensagem'}</button>
-          </div>
-          <span className="meta">Abre o WhatsApp com a mensagem pronta para o número da família; é só apertar enviar.</span>
-        </>
-      )}
+      <p className="meta">Gera o link da família e uma mensagem pronta com os alunos, a série de 2027, o valor e o passo a passo. Depois você envia pelo sistema, copia ou abre no WhatsApp.</p>
+      <button type="button" className="btn btn--primary" disabled={state.busy} onClick={generate}>{state.busy ? 'Gerando…' : 'Gerar rematrícula e mensagem'}</button>
       {state.error ? <div className="notice"><span>{state.error}</span></div> : null}
     </section>
   );
@@ -349,6 +343,16 @@ function CardDrawer({ card, kind, stageLabel, stageColor, onClose, columns, curr
         {error ? <div className="notice"><span>{error}</span></div> : null}
 
         {kind === 'rematricula' && INVITE_STAGES.has(card.stage) ? <RematriculaInvite card={card} onGenerated={onRefresh} /> : null}
+
+        {card.guardian_phone ? (
+          <MessageComposer
+            phone={card.guardian_phone}
+            guardianId={card.guardian_id}
+            name={properName(card.guardian_name)}
+            title="Mensagem para a família"
+            onSent={onRefresh}
+          />
+        ) : null}
 
         <StageControl card={card} columns={columns} current={currentColumn} onMove={onMove} busy={busy} />
 

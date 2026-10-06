@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDebugFollowup } from '../services/data';
+import MessageComposer, { ConfirmModal } from '../components/MessageComposer';
+import { getDebugFollowup, setFollowupHidden } from '../services/data';
 
 /* TESTE / DEBUG — levantamento manual das conversas do WhatsApp (uazapi).
    Os dados vêm de `debug_followup_review`, carregada fora do painel; a RPC
@@ -80,6 +81,10 @@ const TYPE = {
   ListMessage: 'lista', call: 'ligação'
 };
 
+const HIDE_REASONS = ['Equipe da escola', 'Outro setor / curso técnico', 'Fornecedor', 'Robô ou empresa', 'Família: não seguir agora', 'Já resolvido', 'Outro'];
+// Categorias em que a mensagem natural é chamar para a rematrícula.
+const REMAT_CATS = new Set(['link_parado', 'pai_sumiu', 'combinado', 'adiou', 'nao_identificado']);
+
 const fmt = (value) => (value ? new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '—');
 function ago(value) {
   if (!value) return '';
@@ -102,11 +107,14 @@ function displayName(row) {
 const waUrl = (phone) => `https://wa.me/${String(phone || '').replace(/\D/g, '')}`;
 const norm = (value) => String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-function Row({ row, onOpen }) {
+function Row({ row, selected, onToggle, onOpen }) {
   const cat = CAT[row.categoria] || CAT.fora;
   const students = row.alunos_base || row.alunos_hint;
   return (
-    <button type="button" className="fu-row" style={{ '--accent': cat.color }} onClick={() => onOpen(row)}>
+    <div role="button" tabIndex={0} className={`fu-row${selected ? ' is-selected' : ''}`} style={{ '--accent': cat.color }} onClick={() => onOpen(row)} onKeyDown={(event) => { if (event.key === 'Enter') onOpen(row); }}>
+      <label className="fu-check" onClick={(event) => event.stopPropagation()}>
+        <input type="checkbox" checked={selected} onChange={() => onToggle(row.phone)} aria-label={`Selecionar ${displayName(row)}`} />
+      </label>
       <div className="fu-row-main">
         <div className="fu-row-top">
           <strong>{displayName(row)}</strong>
@@ -116,14 +124,60 @@ function Row({ row, onOpen }) {
         <span className="fu-paused">{row.parou_em}</span>
       </div>
       <div className="fu-row-side">
-        <span className={`fu-wait fu-wait--${row.aguardando}`}>{WAITING[row.aguardando]}</span>
+        {row.oculto
+          ? <span className="fu-wait">Desativado · {row.oculto_motivo || 'sem motivo'}</span>
+          : <span className={`fu-wait fu-wait--${row.aguardando}`}>{WAITING[row.aguardando]}</span>}
         <span className="meta">{WHO[row.ultima_msg_de] || '—'} · {ago(row.ultima_msg_em)}</span>
+        {row.ultimo_envio_painel ? <span className="fu-sent">Enviada pelo painel {ago(row.ultimo_envio_painel.at)}{row.ultimo_envio_painel.by ? ` · ${row.ultimo_envio_painel.by.split(' ')[0]}` : ''}</span> : null}
         <div className="fu-flags">
           {row.identificacao !== 'base' ? <span className="kpill kpill--human">{IDENT[row.identificacao]}</span> : null}
           {(row.flags || []).filter((f) => HOT.has(f)).map((f) => <span key={f} className="kpill kpill--hot">{FLAG[f] || f}</span>)}
         </div>
       </div>
-    </button>
+    </div>
+  );
+}
+
+/** Confirmação para tirar (ou devolver) um ou vários números da lista. */
+function HideModal({ rows, hidden, onDone, onClose }) {
+  const [reason, setReason] = useState(HIDE_REASONS[0]);
+  const [note, setNote] = useState('');
+  const [state, setState] = useState({ busy: false, error: '' });
+  async function confirm() {
+    setState({ busy: true, error: '' });
+    try {
+      await setFollowupHidden(rows.map((r) => r.phone), hidden, hidden ? reason : null, hidden ? note : null);
+      onDone();
+    } catch (err) {
+      setState({ busy: false, error: err.message || 'Não foi possível salvar.' });
+    }
+  }
+  const many = rows.length > 1;
+  return (
+    <ConfirmModal
+      title={hidden ? `Desativar ${many ? `${rows.length} números` : 'este número'} do follow-up?` : `Reativar ${many ? `${rows.length} números` : 'este número'}?`}
+      confirmLabel={hidden ? 'Desativar' : 'Reativar'}
+      danger={hidden}
+      busy={state.busy}
+      onConfirm={confirm}
+      onClose={onClose}
+    >
+      <p className="cmodal-text">{hidden
+        ? 'Sai desta lista e fica guardado em “Desativados”. Não muda nada na IA, na conversa nem na jornada.'
+        : 'Volta para a lista do follow-up.'}</p>
+      <ul className="cmodal-list">{rows.slice(0, 12).map((r) => <li key={r.phone}><strong>{displayName(r)}</strong> <span>{r.phone}</span></li>)}{rows.length > 12 ? <li>+{rows.length - 12} outros</li> : null}</ul>
+      {hidden ? (
+        <div className="cmodal-fields">
+          <label>Motivo
+            <select className="control" value={reason} onChange={(event) => setReason(event.target.value)}>{HIDE_REASONS.map((r) => <option key={r}>{r}</option>)}</select>
+          </label>
+          <label>Observação (opcional)
+            <input className="control" value={note} maxLength={200} placeholder="ex.: é a Nilza do financeiro" onChange={(event) => setNote(event.target.value)} />
+          </label>
+        </div>
+      ) : null}
+      {state.error ? <div className="notice"><span>{state.error}</span></div> : null}
+    </ConfirmModal>
   );
 }
 
@@ -142,11 +196,11 @@ function Transcript({ items }) {
   );
 }
 
-function Drawer({ row, onClose }) {
+function Drawer({ row, onClose, onHide, onReload }) {
   const navigate = useNavigate();
   const cat = CAT[row.categoria] || CAT.fora;
   useEffect(() => {
-    const onKey = (event) => { if (event.key === 'Escape') onClose(); };
+    const onKey = (event) => { if (event.key === 'Escape' && !document.querySelector('.cmodal')) onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
@@ -162,6 +216,7 @@ function Drawer({ row, onClose }) {
     ['Última mensagem', `${WHO[row.ultima_msg_de] || '—'} · ${fmt(row.ultima_msg_em)}`],
     ['Última da família', fmt(row.ultima_msg_familia_em)],
     ['Mensagens', `família ${row.msgs_familia} · IA ${row.msgs_ia} · equipe ${row.msgs_equipe}`],
+    row.ultimo_envio_painel ? ['Último envio pelo painel', `${fmt(row.ultimo_envio_painel.at)}${row.ultimo_envio_painel.by ? ` · ${row.ultimo_envio_painel.by}` : ''} · ${row.ultimo_envio_painel.status}`] : null,
     ['Chat uazapi', row.chat_id],
     row.guardian_id ? ['guardian_id', row.guardian_id] : null
   ].filter(Boolean);
@@ -176,9 +231,12 @@ function Drawer({ row, onClose }) {
           </div>
           <button type="button" className="modal-close" aria-label="Fechar" onClick={onClose}>×</button>
         </div>
+        {row.oculto ? (
+          <div className="notice notice--soft"><p><strong>Desativado do follow-up</strong> · {row.oculto_motivo || 'sem motivo'}{row.oculto_nota ? ` — ${row.oculto_nota}` : ''}{row.oculto_por ? ` · por ${row.oculto_por}` : ''} · {fmt(row.oculto_em)}</p></div>
+        ) : null}
         <div className="kdrawer-actions">
-          <a className="btn btn--primary" href={waUrl(row.phone)} target="_blank" rel="noreferrer">Abrir WhatsApp</a>
           {row.guardian_id ? <button type="button" className="btn" onClick={() => navigate(`/familias/${row.guardian_id}`)}>Ver ficha</button> : null}
+          <button type="button" className={`btn${row.oculto ? '' : ' btn--danger'}`} onClick={() => onHide([row], !row.oculto)}>{row.oculto ? 'Reativar no follow-up' : 'Desativar do follow-up'}</button>
         </div>
         <section className="kdrawer-section">
           <h3>O que aconteceu</h3>
@@ -189,6 +247,15 @@ function Drawer({ row, onClose }) {
           <p className="fu-text fu-text--strong">{row.pendencia}</p>
           {row.flags?.length ? <div className="fu-flags">{row.flags.map((f) => <span key={f} className={`kpill${HOT.has(f) ? ' kpill--hot' : ''}`}>{FLAG[f] || f}</span>)}</div> : null}
         </section>
+        <MessageComposer
+          key={row.phone}
+          phone={row.phone}
+          guardianId={row.guardian_id}
+          name={displayName(row)}
+          purpose={REMAT_CATS.has(row.categoria) ? 'rematricula' : 'followup'}
+          title="Mensagem de follow-up"
+          onSent={onReload}
+        />
         <section className="kdrawer-section">
           <h3>Dados para depurar</h3>
           {kv.map(([label, value]) => <div className="kdrawer-kv fu-kv" key={label}><span>{label}</span><strong>{value}</strong></div>)}
@@ -205,36 +272,63 @@ function Drawer({ row, onClose }) {
 export default function FollowUp() {
   const [state, setState] = useState({ loading: true, error: '', data: null });
   const [cat, setCat] = useState('');
+  const [view, setView] = useState('ativos');
   const [onlyOutside, setOnlyOutside] = useState(false);
   const [search, setSearch] = useState('');
-  const [open, setOpen] = useState(null);
+  const [openPhone, setOpenPhone] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
+  const [hiding, setHiding] = useState(null);
 
-  useEffect(() => {
-    getDebugFollowup()
+  const load = useCallback(() => {
+    setState((current) => ({ ...current, loading: true }));
+    return getDebugFollowup()
       .then((data) => setState({ loading: false, error: '', data }))
-      .catch((error) => setState({ loading: false, error: error.message || String(error), data: null }));
+      .catch((error) => setState((current) => ({ ...current, loading: false, error: error.message || String(error) })));
   }, []);
+  useEffect(() => { load(); }, [load]);
 
-  const rows = useMemo(() => state.data?.rows || [], [state.data]);
+  const all = useMemo(() => state.data?.rows || [], [state.data]);
+  const hiddenCount = all.filter((r) => r.oculto).length;
+  const rows = useMemo(() => all.filter((r) => (view === 'desativados' ? r.oculto : !r.oculto)), [all, view]);
   const counts = useMemo(() => rows.reduce((acc, r) => ({ ...acc, [r.categoria]: (acc[r.categoria] || 0) + 1 }), {}), [rows]);
-  const outside = rows.filter((r) => r.identificacao === 'pai_fora_da_base' || r.identificacao === 'desconhecido').length;
+  const isOutside = (r) => r.identificacao === 'pai_fora_da_base' || r.identificacao === 'desconhecido';
+  const outside = rows.filter(isOutside).length;
   const waitingSchool = rows.filter((r) => r.aguardando === 'escola').length;
   const visible = useMemo(() => {
     const term = norm(search.trim());
     return rows.filter((r) => (!cat || r.categoria === cat)
-      && (!onlyOutside || r.identificacao === 'pai_fora_da_base' || r.identificacao === 'desconhecido')
+      && (!onlyOutside || isOutside(r))
       && (!term || norm([r.responsavel, r.contato_whatsapp, r.phone, r.alunos_base, r.alunos_hint, r.resumo].join(' ')).includes(term)));
   }, [rows, cat, onlyOutside, search]);
   const groups = CATS.map((c) => [c, visible.filter((r) => r.categoria === c.key)]).filter(([, list]) => list.length);
+  const open = all.find((r) => r.phone === openPhone) || null;
+  const selectedRows = all.filter((r) => selected.has(r.phone));
+
+  function toggle(phone) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(phone)) next.delete(phone); else next.add(phone);
+      return next;
+    });
+  }
+  function selectGroup(list) {
+    setSelected((current) => {
+      const next = new Set(current);
+      const allIn = list.every((r) => next.has(r.phone));
+      list.forEach((r) => (allIn ? next.delete(r.phone) : next.add(r.phone)));
+      return next;
+    });
+  }
+  function switchView(next) { setView(next); setSelected(new Set()); setCat(''); }
 
   return (
     <div className="fu-page">
       <div className="notice notice--soft fu-banner">
-        <p><strong>Aba de teste.</strong> Levantamento de todas as conversas do WhatsApp da escola no período {state.data?.snapshot || ''}, lidas na uazapi e cruzadas com a base. Só leitura: nada aqui manda mensagem ou muda a jornada. O cadastro, a etapa e o atendimento são atuais; a conversa e a análise são do momento do levantamento.</p>
+        <p><strong>Aba de teste.</strong> Levantamento de todas as conversas do WhatsApp da escola no período {state.data?.snapshot || ''}, lidas na uazapi e cruzadas com a base. O cadastro, a etapa e o atendimento são atuais; a conversa e a análise são do momento do levantamento. Desativar só tira da lista: não muda a IA.</p>
       </div>
 
       {state.error ? <div className="notice"><strong>Não foi possível carregar.</strong><span>{state.error}</span></div> : null}
-      {state.loading ? <div className="notice">Carregando…</div> : null}
+      {state.loading && !state.data ? <div className="notice">Carregando…</div> : null}
 
       {state.data ? (
         <>
@@ -242,10 +336,14 @@ export default function FollowUp() {
             <div className="fu-kpi fu-kpi--hot"><span>Esperando a escola</span><strong>{waitingSchool}</strong><small>a próxima mensagem é nossa</small></div>
             <div className="fu-kpi"><span>Família fora do cadastro</span><strong>{outside}</strong><small>número não bate com a base</small></div>
             <div className="fu-kpi"><span>Link parado ou família sumiu</span><strong>{(counts.link_parado || 0) + (counts.pai_sumiu || 0)}</strong><small>a próxima mensagem é da família</small></div>
-            <div className="fu-kpi"><span>Conversas no período</span><strong>{rows.length}</strong><small>inclui cobrança, equipe e fornecedor</small></div>
+            <div className="fu-kpi"><span>{view === 'desativados' ? 'Desativados' : 'Na lista'}</span><strong>{rows.length}</strong><small>{view === 'desativados' ? 'fora do follow-up' : `${hiddenCount} desativado${hiddenCount === 1 ? '' : 's'}`}</small></div>
           </div>
 
           <div className="fu-toolbar">
+            <div className="segmented" role="tablist">
+              <button type="button" role="tab" aria-selected={view === 'ativos'} className={view === 'ativos' ? 'is-active' : ''} onClick={() => switchView('ativos')}>Na lista</button>
+              <button type="button" role="tab" aria-selected={view === 'desativados'} className={view === 'desativados' ? 'is-active' : ''} onClick={() => switchView('desativados')}>Desativados{hiddenCount ? ` (${hiddenCount})` : ''}</button>
+            </div>
             <input className="control fu-search" type="search" placeholder="Buscar nome, aluno, telefone ou assunto" value={search} onChange={(event) => setSearch(event.target.value)} />
             <button type="button" className={`chip${onlyOutside ? ' is-active' : ''}`} onClick={() => setOnlyOutside((v) => !v)}>Só fora do cadastro<span className="chip-count">{outside}</span></button>
           </div>
@@ -256,20 +354,38 @@ export default function FollowUp() {
             ))}
           </div>
 
+          {selected.size ? (
+            <div className="fu-bulk">
+              <strong>{selected.size} selecionado{selected.size > 1 ? 's' : ''}</strong>
+              <button type="button" className={`btn${view === 'desativados' ? ' btn--primary' : ' btn--danger'}`} onClick={() => setHiding({ rows: selectedRows, hidden: view !== 'desativados' })}>{view === 'desativados' ? 'Reativar selecionados' : 'Desativar selecionados'}</button>
+              <button type="button" className="btn btn--ghost" onClick={() => setSelected(new Set())}>Limpar seleção</button>
+            </div>
+          ) : null}
+
           {groups.map(([c, list]) => (
             <section key={c.key} className="fu-group" style={{ '--accent': c.color }}>
               <header className="fu-group-head">
-                <div><i /><strong>{c.label}</strong><span className="kcol-count">{list.length}</span></div>
+                <div><i /><strong>{c.label}</strong><span className="kcol-count">{list.length}</span>
+                  <button type="button" className="fu-selall" onClick={() => selectGroup(list)}>{list.every((r) => selected.has(r.phone)) ? 'desmarcar' : 'marcar todos'}</button>
+                </div>
                 {c.hint ? <span className="meta">{c.hint}</span> : null}
               </header>
-              <div className="fu-list">{list.map((r) => <Row key={r.id} row={r} onOpen={setOpen} />)}</div>
+              <div className="fu-list">{list.map((r) => <Row key={r.id} row={r} selected={selected.has(r.phone)} onToggle={toggle} onOpen={(item) => setOpenPhone(item.phone)} />)}</div>
             </section>
           ))}
-          {!groups.length ? <div className="kcol-empty">Nada com esse filtro</div> : null}
+          {!groups.length ? <div className="kcol-empty">{view === 'desativados' ? 'Nenhum número desativado' : 'Nada com esse filtro'}</div> : null}
         </>
       ) : null}
 
-      {open ? <Drawer row={open} onClose={() => setOpen(null)} /> : null}
+      {open ? <Drawer key={open.phone} row={open} onClose={() => setOpenPhone(null)} onHide={(list, hidden) => setHiding({ rows: list, hidden })} onReload={load} /> : null}
+      {hiding ? (
+        <HideModal
+          rows={hiding.rows}
+          hidden={hiding.hidden}
+          onClose={() => setHiding(null)}
+          onDone={() => { setHiding(null); setSelected(new Set()); setOpenPhone(null); load(); }}
+        />
+      ) : null}
     </div>
   );
 }
