@@ -951,6 +951,7 @@ a:hover { color: var(--navy); }
 .kdrawer-kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
 .kdrawer-kv span { color: var(--ink-mute); }
 .kdrawer-kv strong { color: var(--navy); text-align: right; }
+.kinvite-text { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--surface-2); font: inherit; font-size: 13px; line-height: 1.5; color: var(--ink-body); resize: vertical; }
 .kdrawer-summary { margin: 2px 0 0; font-size: 13px; line-height: 1.55; color: var(--ink-body); }
 .kdrawer-quote { margin: 0; padding: 9px 12px; border-left: 3px solid var(--navy-soft); background: var(--surface-2); border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: 12.5px; color: var(--ink-body); line-height: 1.5; }
 

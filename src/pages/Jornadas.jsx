@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '../components/ui';
-import { getJourneyBoard, setInstallmentPaid, setJourneyStage } from '../services/data';
+import { getJourneyBoard, setInstallmentPaid, setJourneyStage, staffRematriculaInvite } from '../services/data';
 import { date as formatDate, money } from '../lib/format';
 import { COLUMNS, KINDS } from '../lib/journey';
 
@@ -28,11 +28,109 @@ function timeAgo(value) {
   return days === 1 ? 'ontem' : `há ${days} dias`;
 }
 
-function whatsappUrl(phone) {
+function whatsappUrl(phone, text = '') {
   let digits = String(phone || '').replace(/\D/g, '');
   if (!digits) return '';
   if (!digits.startsWith('55')) digits = `55${digits}`;
-  return `https://wa.me/${digits}`;
+  return `https://wa.me/${digits}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
+}
+
+const LOWER_WORDS = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
+// "PÉROLA GOMES GUIMARÃES" → "Pérola Gomes Guimarães" (a base antiga veio em caixa alta).
+function properName(value) {
+  return String(value || '').trim().toLowerCase().split(/\s+/)
+    .map((word, index) => (index && LOWER_WORDS.has(word) ? word : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join(' ');
+}
+
+function listNames(names) {
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}` : names[0] || '';
+}
+
+// Etapas em que ainda faz sentido mandar o link da rematrícula.
+const INVITE_STAGES = new Set(['a_contatar', 'conversa', 'identificacao', 'alunos', 'condicoes', 'assinatura']);
+
+/** Mensagem completa para o pai: alunos, série, valor, passo a passo e link. */
+function inviteMessage(invite, link) {
+  const placeholder = /responsavel \(whatsapp\)/i.test(invite.guardian_name || '');
+  const firstName = placeholder ? '' : properName(invite.guardian_name).split(' ')[0];
+  const students = invite.students || [];
+  const names = students.map((s) => properName(s.name).split(' ')[0]);
+  const year = invite.academic_year || 2027;
+  const lines = [
+    `Olá${firstName ? `, ${firstName}` : ''}! Tudo bem? 😊`,
+    '',
+    `Aqui é da secretaria do CEC. Segue o link para fazer a rematrícula ${year}${names.length ? ` de ${listNames(names)}` : ''}, tudo pelo celular:`,
+  ];
+  if (students.length) {
+    lines.push('');
+    for (const s of students) {
+      let price = s.amount_cents ? money(s.amount_cents) : '';
+      if (price && s.early_until && s.table_amount_cents > s.amount_cents) {
+        price += ` (valor de outubro, garantido até ${formatDate(s.early_until)}; depois, ${money(s.table_amount_cents)})`;
+      }
+      lines.push(`📚 *${properName(s.name)}* — ${s.next_grade || 'série de ' + year}${price ? `: ${price}` : ''}`);
+    }
+  }
+  lines.push(
+    '',
+    '*Como fazer (leva poucos minutos):*',
+    '1️⃣ Abra o link abaixo',
+    '2️⃣ Confirme os filhos que vão continuar no CEC',
+    '3️⃣ Escolha em quantas vezes quer pagar',
+    '4️⃣ Confira os dados e assine o contrato (chega um código no seu e-mail para confirmar)',
+    '5️⃣ Escolha a forma de pagamento: Pix à vista, ou boleto/cartão no parcelado',
+    '',
+    `👉 ${link}`,
+    '',
+    'Qualquer dúvida, é só responder aqui. 💙',
+  );
+  return lines.join('\n');
+}
+
+function RematriculaInvite({ card, onGenerated }) {
+  const [state, setState] = useState({ busy: false, error: '', text: '', copied: false });
+
+  async function generate() {
+    setState((current) => ({ ...current, busy: true, error: '' }));
+    try {
+      const invite = await staffRematriculaInvite(card.guardian_id);
+      const link = journeyUrl({ token: invite.token, flow: invite.flow || 'rematricula' });
+      setState({ busy: false, error: '', text: inviteMessage(invite, link), copied: false });
+      onGenerated?.();
+    } catch (err) {
+      setState((current) => ({ ...current, busy: false, error: err.message || 'Não foi possível gerar a rematrícula.' }));
+    }
+  }
+
+  async function copy() {
+    await navigator.clipboard?.writeText(state.text);
+    setState((current) => ({ ...current, copied: true }));
+    window.setTimeout(() => setState((current) => ({ ...current, copied: false })), 1800);
+  }
+
+  const wa = whatsappUrl(card.guardian_phone, state.text);
+  return (
+    <section className="kdrawer-section kinvite">
+      <h3>Rematrícula pelo WhatsApp</h3>
+      {!state.text ? (
+        <>
+          <p className="meta">Gera o link da família e uma mensagem pronta com os alunos, a série de 2027, o valor e o passo a passo.</p>
+          <button type="button" className="btn btn--primary" disabled={state.busy} onClick={generate}>{state.busy ? 'Gerando…' : 'Gerar rematrícula e mensagem'}</button>
+        </>
+      ) : (
+        <>
+          <textarea className="kinvite-text" value={state.text} rows={14} onChange={(event) => setState((current) => ({ ...current, text: event.target.value }))} />
+          <div className="kdrawer-actions">
+            {wa ? <a className="btn btn--primary" href={wa} target="_blank" rel="noreferrer">Enviar no WhatsApp</a> : null}
+            <button type="button" className="btn" onClick={copy}>{state.copied ? 'Mensagem copiada' : 'Copiar mensagem'}</button>
+          </div>
+          <span className="meta">Abre o WhatsApp com a mensagem pronta para o número da família; é só apertar enviar.</span>
+        </>
+      )}
+      {state.error ? <div className="notice"><span>{state.error}</span></div> : null}
+    </section>
+  );
 }
 
 function journeyUrl(card) {
@@ -209,7 +307,7 @@ function InstallmentRow({ item, onPay, busy }) {
   );
 }
 
-function CardDrawer({ card, stageLabel, stageColor, onClose, columns, currentColumn, onMove, onPay, busy, error }) {
+function CardDrawer({ card, kind, stageLabel, stageColor, onClose, columns, currentColumn, onMove, onPay, busy, error, onRefresh }) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const link = journeyUrl(card);
@@ -249,6 +347,8 @@ function CardDrawer({ card, stageLabel, stageColor, onClose, columns, currentCol
         </div>
 
         {error ? <div className="notice"><span>{error}</span></div> : null}
+
+        {kind === 'rematricula' && INVITE_STAGES.has(card.stage) ? <RematriculaInvite card={card} onGenerated={onRefresh} /> : null}
 
         <StageControl card={card} columns={columns} current={currentColumn} onMove={onMove} busy={busy} />
 
@@ -448,6 +548,8 @@ export default function Jornadas() {
         <CardDrawer
           key={openCard.guardian_id}
           card={openCard}
+          kind={kind}
+          onRefresh={() => load(true)}
           stageLabel={openColumn?.label || openCard.stage}
           stageColor={openColumn?.color}
           onClose={() => setOpenId(null)}
