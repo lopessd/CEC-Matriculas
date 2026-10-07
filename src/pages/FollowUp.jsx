@@ -74,6 +74,19 @@ const FLAG = {
   quer_rematricular: 'Quer rematricular',
   financeiro: 'Financeiro'
 };
+// Motivo do pedido de humano da IA (enrollment_events.body), ao vivo.
+const ASK = {
+  troca_forma_pagamento: 'Quer trocar a forma de pagamento',
+  cobranca_nao_gerada: 'Cobrança não gerada no Asaas',
+  cobranca_vencida: 'Cobrança vencida',
+  negociacao_ou_excecao: 'Pediu condição especial',
+  financeiro: 'Assunto financeiro',
+  responsavel_pediu_atendente: 'Pediu para falar com alguém',
+  reclamacao: 'Reclamação',
+  reclamacao_formal: 'Reclamação formal',
+  ia_prometeu_equipe: 'IA prometeu a equipe'
+};
+const askLabel = (motivo) => ASK[motivo] || 'IA chamou a secretaria';
 const HOT = new Set(['sem_resposta_humana', 'pai_falou_por_ultimo', 'erro_ia_instabilidade', 'risco_de_perda', 'senha_enviada_no_chat', 'cobranca_para_fornecedor']);
 const TYPE = {
   AudioMessage: 'áudio', DocumentMessage: 'documento', ImageMessage: 'imagem', VideoMessage: 'vídeo',
@@ -132,6 +145,8 @@ function Row({ row, selected, onToggle, onOpen }) {
         <span className="meta">{WHO[row.ultima_msg_de] || '—'} · {ago(row.ultima_msg_em)}</span>
         {row.ultimo_envio_painel ? <span className="fu-sent">Enviada pelo painel {ago(row.ultimo_envio_painel.at)}{row.ultimo_envio_painel.by ? ` · ${row.ultimo_envio_painel.by.split(' ')[0]}` : ''}</span> : null}
         <div className="fu-flags">
+          {row.pedido_aberto ? <span className="kpill kpill--hot">{askLabel(row.pedido_aberto.motivo)} · {ago(row.pedido_aberto.em)}</span> : null}
+          {row.ao_vivo ? <span className="kpill">Fora do levantamento</span> : null}
           {row.ia_desligada ? <span className="kpill kpill--off">IA desligada</span> : null}
           {row.identificacao !== 'base' ? <span className="kpill kpill--human">{IDENT[row.identificacao]}</span> : null}
           {(row.flags || []).filter((f) => HOT.has(f)).map((f) => <span key={f} className="kpill kpill--hot">{FLAG[f] || f}</span>)}
@@ -250,6 +265,9 @@ function Drawer({ row, onClose, onHide, onReload }) {
         {row.oculto ? (
           <div className="notice notice--soft"><p><strong>Desativado do follow-up{row.ia_desligada ? ' · IA desligada' : ''}</strong> · {row.oculto_motivo || 'sem motivo'}{row.oculto_nota ? ` — ${row.oculto_nota}` : ''}{row.oculto_por ? ` · por ${row.oculto_por}` : ''} · {fmt(row.oculto_em)}</p></div>
         ) : null}
+        {row.pedido_aberto ? (
+          <div className="notice"><p><strong>{askLabel(row.pedido_aberto.motivo)}</strong> · a IA chamou a secretaria {fmt(row.pedido_aberto.em)} e ninguém da equipe respondeu depois. A IA fica pausada nesta conversa.{row.categoria_levantamento && row.categoria_levantamento !== row.categoria ? ` No levantamento: ${(CAT[row.categoria_levantamento] || CAT.fora).label}.` : ''}</p></div>
+        ) : null}
         <div className="kdrawer-actions">
           {row.guardian_id ? <button type="button" className="btn" onClick={() => navigate(`/familias/${row.guardian_id}`)}>Ver ficha</button> : null}
           <button type="button" className={`btn${row.oculto ? '' : ' btn--danger'}`} onClick={() => onHide([row], !row.oculto)}>{row.oculto ? 'Reativar no follow-up' : 'Desativar do follow-up'}</button>
@@ -340,7 +358,7 @@ export default function FollowUp() {
   return (
     <div className="fu-page">
       <div className="notice notice--soft fu-banner">
-        <p><strong>Aba de teste.</strong> Levantamento de todas as conversas do WhatsApp da escola no período {state.data?.snapshot || ''}, lidas na uazapi e cruzadas com a base. O cadastro, a etapa e o atendimento são atuais; a conversa e a análise são do momento do levantamento. Desativar só tira da lista: não muda a IA.</p>
+        <p><strong>Aba de teste.</strong> Levantamento de todas as conversas do WhatsApp da escola no período {state.data?.snapshot || ''}, lidas na uazapi e cruzadas com a base. O cadastro, a etapa e o atendimento são atuais; a conversa e a análise são do momento do levantamento. O pedido de humano da IA (em vermelho) é ao vivo: quem chamou a secretaria e ainda não teve resposta da equipe sobe para “Esperando a escola”.</p>
       </div>
 
       {state.error ? <div className="notice"><strong>Não foi possível carregar.</strong><span>{state.error}</span></div> : null}
