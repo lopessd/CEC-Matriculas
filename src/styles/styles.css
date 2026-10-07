@@ -1494,6 +1494,7 @@ a:hover { color: var(--navy); }
 .fu-bulk strong { margin-right: auto; font-size: 13.5px; }
 .fu-bulk .btn--ghost { color: #DDE6FF; }
 .fu-sent { font-size: 11px; font-weight: 700; color: var(--green-ink); }
+.fu-contacted { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: var(--r-pill); color: var(--green-ink); background: color-mix(in srgb, var(--green-ink) 10%, transparent); white-space: nowrap; }
 
 /* Compositor de mensagem e modal de confirmação */
 .mcomposer-ai { display: flex; gap: 8px; flex-wrap: wrap; }

@@ -9,6 +9,7 @@ import { getDebugFollowup, setFollowupStatus } from '../services/data';
    família: é só para enxergar onde cada conversa parou. */
 
 const CATS = [
+  { key: 'troca_pagamento', label: 'Quer outra forma de pagamento', hint: 'Já tinha a cobrança gerada e pediu para pagar de outro jeito (forma, à vista, parcelas, data ou dinheiro). A IA chamou a secretaria: ajustar no Asaas e mandar os novos links.', color: '#D4380D' },
   { key: 'esperando_escola', label: 'Esperando a escola', hint: 'A família falou por último ou a IA prometeu a equipe, e ninguém respondeu.', color: '#C0392B' },
   { key: 'nao_identificado', label: 'Pai/mãe não identificado', hint: 'É família de aluno, mas o número não bate com o cadastro.', color: '#E4581C' },
   { key: 'combinado', label: 'Combinado, falta concluir', hint: 'A equipe negociou; falta mandar a rematrícula.', color: '#B8430E' },
@@ -86,6 +87,17 @@ const ASK = {
   reclamacao_formal: 'Reclamação formal',
   ia_prometeu_equipe: 'IA prometeu a equipe'
 };
+// Já recebeu mensagem da equipe pelo sistema (painel ou envio em lote).
+function Contacted({ sent }) {
+  if (!sent) return null;
+  const who = sent.by ? ` por ${sent.by.split(' ')[0]}` : '';
+  return (
+    <span className="fu-contacted" title={`Contatado pelo sistema em ${fmt(sent.at)}${who}${sent.status && sent.status !== 'enviada' ? ` · ${sent.status}` : ''}`}>
+      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M1.5 3.5h13v9h-13z M1.5 3.5l6.5 5 6.5-5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>
+      Contatado {ago(sent.at)}
+    </span>
+  );
+}
 const askLabel = (motivo) => ASK[motivo] || 'IA chamou a secretaria';
 const HOT = new Set(['sem_resposta_humana', 'pai_falou_por_ultimo', 'erro_ia_instabilidade', 'risco_de_perda', 'senha_enviada_no_chat', 'cobranca_para_fornecedor']);
 const TYPE = {
@@ -134,6 +146,7 @@ function Row({ row, selected, onToggle, onOpen }) {
         <div className="fu-row-top">
           <strong>{displayName(row)}</strong>
           {row.contato_whatsapp && displayName(row) !== row.contato_whatsapp ? <span className="fu-contact">“{row.contato_whatsapp}”</span> : null}
+          <Contacted sent={row.ultimo_envio_painel} />
         </div>
         {students ? <span className="fu-students">{students}</span> : null}
         <span className="fu-paused">{row.parou_em}</span>
@@ -143,7 +156,6 @@ function Row({ row, selected, onToggle, onOpen }) {
           ? <span className="fu-wait">Desativado · {row.oculto_motivo || 'sem motivo'}</span>
           : <span className={`fu-wait fu-wait--${row.aguardando}`}>{WAITING[row.aguardando]}</span>}
         <span className="meta">{WHO[row.ultima_msg_de] || '—'} · {ago(row.ultima_msg_em)}</span>
-        {row.ultimo_envio_painel ? <span className="fu-sent">Enviada pelo painel {ago(row.ultimo_envio_painel.at)}{row.ultimo_envio_painel.by ? ` · ${row.ultimo_envio_painel.by.split(' ')[0]}` : ''}</span> : null}
         <div className="fu-flags">
           {row.pedido_aberto ? <span className="kpill kpill--hot">{askLabel(row.pedido_aberto.motivo)} · {ago(row.pedido_aberto.em)}</span> : null}
           {row.ao_vivo ? <span className="kpill">Fora do levantamento</span> : null}
@@ -247,7 +259,7 @@ function Drawer({ row, onClose, onHide, onReload }) {
     ['Última mensagem', `${WHO[row.ultima_msg_de] || '—'} · ${fmt(row.ultima_msg_em)}`],
     ['Última da família', fmt(row.ultima_msg_familia_em)],
     ['Mensagens', `família ${row.msgs_familia} · IA ${row.msgs_ia} · equipe ${row.msgs_equipe}`],
-    row.ultimo_envio_painel ? ['Último envio pelo painel', `${fmt(row.ultimo_envio_painel.at)}${row.ultimo_envio_painel.by ? ` · ${row.ultimo_envio_painel.by}` : ''} · ${row.ultimo_envio_painel.status}`] : null,
+    row.ultimo_envio_painel ? ['Contatado pelo sistema', `${fmt(row.ultimo_envio_painel.at)} · ${row.ultimo_envio_painel.by || 'envio em lote'} · ${row.ultimo_envio_painel.status}`] : null,
     ['Chat uazapi', row.chat_id],
     row.guardian_id ? ['guardian_id', row.guardian_id] : null
   ].filter(Boolean);
@@ -308,6 +320,7 @@ export default function FollowUp() {
   const [cat, setCat] = useState('');
   const [view, setView] = useState('ativos');
   const [onlyOutside, setOnlyOutside] = useState(false);
+  const [onlyContacted, setOnlyContacted] = useState(false);
   const [search, setSearch] = useState('');
   const [openPhone, setOpenPhone] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
@@ -332,8 +345,9 @@ export default function FollowUp() {
     const term = norm(search.trim());
     return rows.filter((r) => (!cat || r.categoria === cat)
       && (!onlyOutside || isOutside(r))
+      && (!onlyContacted || r.ultimo_envio_painel)
       && (!term || norm([r.responsavel, r.contato_whatsapp, r.phone, r.alunos_base, r.alunos_hint, r.resumo].join(' ')).includes(term)));
-  }, [rows, cat, onlyOutside, search]);
+  }, [rows, cat, onlyOutside, onlyContacted, search]);
   const groups = CATS.map((c) => [c, visible.filter((r) => r.categoria === c.key)]).filter(([, list]) => list.length);
   const open = all.find((r) => r.phone === openPhone) || null;
   const selectedRows = all.filter((r) => selected.has(r.phone));
@@ -380,6 +394,7 @@ export default function FollowUp() {
             </div>
             <input className="control fu-search" type="search" placeholder="Buscar nome, aluno, telefone ou assunto" value={search} onChange={(event) => setSearch(event.target.value)} />
             <button type="button" className={`chip${onlyOutside ? ' is-active' : ''}`} onClick={() => setOnlyOutside((v) => !v)}>Só fora do cadastro<span className="chip-count">{outside}</span></button>
+            <button type="button" className={`chip${onlyContacted ? ' is-active' : ''}`} onClick={() => setOnlyContacted((v) => !v)}>Já contatados<span className="chip-count">{rows.filter((r) => r.ultimo_envio_painel).length}</span></button>
           </div>
           <div className="chip-row">
             <button type="button" className={`chip${!cat ? ' is-active' : ''}`} onClick={() => setCat('')}>Todas<span className="chip-count">{rows.length}</span></button>
