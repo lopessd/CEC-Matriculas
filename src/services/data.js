@@ -84,6 +84,20 @@ export function setFollowupStatus(phones, hidden, { aiOff = false, reason, note 
   return supabase.rpc('staff_followup_set_status', { p_phones: phones, p_hidden: hidden, p_ai_off: Boolean(hidden && aiOff), p_reason: reason || null, p_note: note || null });
 }
 
+/** Aba Automação: configuração, textos, fila e histórico do disparo de rematrícula. */
+export function getAutomation() {
+  return supabase.rpc('staff_automation_overview', {});
+}
+
+export function saveAutomation({ settings = null, templates = null } = {}) {
+  return supabase.rpc('staff_automation_save', { p_settings: settings, p_templates: templates });
+}
+
+/** Edge Function automation-tick: `status` (UAZAPI conectada?) e `test` (manda o texto para um número da equipe). */
+export function automationAction(action, payload = {}) {
+  return supabase.invokeFunction('automation-tick', { action, ...payload });
+}
+
 /** WhatsApp pelo painel (Edge Function staff-whatsapp): sugestão da IA e envio pela UAZAPI. */
 export function suggestStaffMessage({ phone, guardianId, purpose, instruction }) {
   return supabase.invokeFunction('staff-whatsapp', { action: 'suggest', phone, guardian_id: guardianId || null, purpose, instruction: instruction || null });

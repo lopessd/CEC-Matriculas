@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Jornadas from './pages/Jornadas';
 import FollowUp from './pages/FollowUp';
+import Automacao from './pages/Automacao';
 import Familias from './pages/Familias';
 import FamilyDetail from './pages/FamilyDetail';
 import Matriculados from './pages/Matriculados';
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="jornadas" element={<Jornadas />} />
         <Route path="follow-up" element={<FollowUp />} />
+        <Route path="automacao" element={<Automacao />} />
         <Route path="links" element={<LinkGenerator />} />
 
         <Route path="familias" element={<Familias />} />

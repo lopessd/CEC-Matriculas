@@ -9,6 +9,7 @@ const navigation = [
   { section: 'Operação' },
   { path: '/jornadas', label: 'Jornadas', icon: 'board', dot: '#F07E26' },
   { path: '/follow-up', label: 'Follow-up (teste)', icon: 'sparkle', dot: '#C0392B' },
+  { path: '/automacao', label: 'Automação', icon: 'send', dot: '#25794A' },
   { path: '/dashboard', label: 'Dashboard', icon: 'dashboard', dot: '#E4581C' },
   { path: '/familias', label: 'Famílias', icon: 'families', dot: '#3AA757' },
   { path: '/matriculados', label: 'Matriculados', icon: 'enrolled', dot: '#3AA757' },
@@ -23,6 +24,7 @@ const navigation = [
 const heads = {
   '/jornadas': ['Campanha 2027', 'Jornadas das famílias'],
   '/follow-up': ['Teste · WhatsApp', 'Follow-up das conversas'],
+  '/automacao': ['WhatsApp · Rematrícula 2027', 'Automação de contato'],
   '/dashboard': ['Campanha 2027', 'Visão geral da operação'],
   '/familias': ['Campanha 2027', 'Famílias'],
   '/matriculados': ['Resultado da campanha', 'Matriculados'],
