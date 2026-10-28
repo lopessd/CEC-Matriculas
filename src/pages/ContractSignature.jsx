@@ -216,6 +216,16 @@ export default function ContractSignature() {
   const [dataSaveError, setDataSaveError] = useState('');
   const [pendingSiblings, setPendingSiblings] = useState([]);
   const journeyToken = searchParams.get('j');
+  const renewedFor = useRef('');
+
+  // Link de contrato vencido aberto pela jornada: gera um novo e segue nele.
+  useEffect(() => {
+    if (!journeyToken || !/expirado/i.test(contract.error || '') || renewedFor.current === token) return;
+    renewedFor.current = token;
+    prepareFamilyContract(journeyToken, null)
+      .then((result) => navigate(`${result.url}?j=${encodeURIComponent(journeyToken)}&f=${searchParams.get('f') || 'rematricula'}`, { replace: true }))
+      .catch(() => {});
+  }, [contract.error, journeyToken, token, navigate, searchParams]);
 
   // Contrato aberto com só uma parte da família: oferece juntar os irmãos que
   // ainda estão pendentes na mesma jornada num contrato conjunto.

@@ -268,7 +268,9 @@ export default function EnrollmentOnboarding({ initialFlow = null }) {
     }
   }
   function sign(sharedToken) {
-    if (sharedToken) { navigate(`/contrato/${sharedToken}?j=${encodeURIComponent(token)}&f=${flow}`); return; }
+    // E-mail trocado na tela: gera um contrato novo para o código ir ao e-mail certo.
+    const emailChanged = email && email.trim().toLowerCase() !== (data.guardian?.email || '').trim().toLowerCase();
+    if (sharedToken && !emailChanged) { navigate(`/contrato/${sharedToken}?j=${encodeURIComponent(token)}&f=${flow}`); return; }
     run(async () => {
       const result = await prepareFamilyContract(token, email || data.guardian?.email);
       navigate(`${result.url}?j=${encodeURIComponent(token)}&f=${encodeURIComponent(flow)}`);
