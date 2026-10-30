@@ -78,7 +78,7 @@ export default function MessageComposer({ phone, guardianId, name, initialText =
       <h3>{title}</h3>
       {allowSuggest ? (
         <div className="mcomposer-ai">
-          <input className="control" placeholder="Orientação para a IA (opcional): ex. lembrar do prazo de 31/10" value={instruction} onChange={(event) => setInstruction(event.target.value)} maxLength={300} />
+          <input className="control" placeholder="Orientação para a IA (opcional): ex. lembrar do prazo de 06/11" value={instruction} onChange={(event) => setInstruction(event.target.value)} maxLength={300} />
           <button type="button" className="btn" disabled={state.suggesting} onClick={suggest}>{state.suggesting ? 'Escrevendo…' : text ? '✨ Sugerir outra' : '✨ Sugerir com IA'}</button>
         </div>
       ) : null}

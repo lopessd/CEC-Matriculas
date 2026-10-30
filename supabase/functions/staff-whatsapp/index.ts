@@ -114,7 +114,7 @@ async function suggest(ctx: Ctx, body: any) {
   const user = [
     `Objetivo: ${purpose}.`,
     body.instruction ? `Orientação da atendente: ${String(body.instruction).slice(0, 600)}` : "",
-    `Hoje: ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}. A condição especial de rematrícula vale até 31/10/2026.`,
+    `Hoje: ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}. A condição especial de rematrícula vale até 06/11/2026 (prorrogada; antes era 31/10).`,
     `Contato no WhatsApp: ${review?.contato_whatsapp || "(desconhecido)"} · telefone ${phone}`,
     family ? `Cadastro: ${JSON.stringify(family)}` : "Este número não tem cadastro na base.",
     review ? `Levantamento da equipe — o que aconteceu: ${review.resumo}\nOnde parou: ${review.parou_em}\nO que falta: ${review.pendencia}${review.alunos_hint ? `\nAlunos achados pelo nome: ${review.alunos_hint}` : ""}` : "",

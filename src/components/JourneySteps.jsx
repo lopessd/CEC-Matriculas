@@ -73,7 +73,7 @@ export function ConditionsStep({ data, busy, onConfirm, onEditChildren }) {
       <span className="values-hero__tag">Valor especial até {date(earlyUntil)}</span>
       <div className="values-hero__numbers">
         <div><small>Tabela 2027</small><s>{money(fullTotal)}</s></div>
-        <div className="values-hero__main"><small>Fechando em outubro você paga</small><strong>{money(total)}</strong></div>
+        <div className="values-hero__main"><small>Fechando até {date(earlyUntil)} você paga</small><strong>{money(total)}</strong></div>
       </div>
       <p>Você economiza <b>{money(savings)}</b> e escolhe quando pagar.</p>
     </div> : <div className="values-hero values-hero--plain">

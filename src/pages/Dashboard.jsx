@@ -298,9 +298,9 @@ export default function Dashboard() {
         {view.daysLeft != null && view.daysLeft >= 0 ? (
           <div className="dz-deadline">
             <strong>{view.daysLeft === 0 ? 'Hoje' : `${view.daysLeft} dias`}</strong>
-            <span>{view.daysLeft === 0 ? 'é o último dia' : 'para o fim'} do valor de outubro · até {dayLabel(d.early_until)}</span>
+            <span>{view.daysLeft === 0 ? 'é o último dia' : 'para o fim'} do valor promocional · até {dayLabel(d.early_until)}</span>
           </div>
-        ) : <div className="dz-deadline"><span>Valor de outubro encerrado; vale a tabela 2027</span></div>}
+        ) : <div className="dz-deadline"><span>Valor promocional encerrado; vale a tabela 2027</span></div>}
         <div className="dz-strip-actions">
           {view.human ? <button type="button" className="btn btn--orange" onClick={() => navigate('/jornadas')}>{view.human} famílias precisam de humano →</button> : null}
           <button type="button" className="btn" onClick={async () => { await navigator.clipboard?.writeText(publicUrl); setCopied(true); window.setTimeout(() => setCopied(false), 1800); }}>{copied ? 'Link copiado' : 'Copiar link de matrícula nova'}</button>

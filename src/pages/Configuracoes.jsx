@@ -13,11 +13,11 @@ function formatShifts(shifts) {
 export default function Configuracoes() {
   const { loading, data, error } = useAsyncData(getSettings, []);
   const closingRule = [
-    ['Até 31/10/2026', 'Valor da rematrícula da turma', 'O valor promocional é aplicado quando o contrato é fechado até esta data.'],
-    ['A partir de 01/11/2026', 'Tabela da rematrícula 2027', 'O valor de 2027 é aplicado e fica registrado no contrato assinado.']
+    ['Até 06/11/2026', 'Valor da rematrícula da turma', 'O valor promocional é aplicado quando o contrato é fechado até esta data.'],
+    ['A partir de 07/11/2026', 'Tabela da rematrícula 2027', 'O valor de 2027 é aplicado e fica registrado no contrato assinado.']
   ];
   const paymentRules = [
-    ['Parcelamento', 'Até janeiro', 'Até 31/10: 3 parcelas em novembro, dezembro e janeiro. Depois: pagamento único em janeiro.'],
+    ['Parcelamento', 'Até janeiro', 'Até 06/11: 3 parcelas em novembro, dezembro e janeiro. Depois: pagamento único em janeiro.'],
     ['Formas aceitas', 'Boleto · Cartão · Pix', 'A cobrança será enviada no meio escolhido pelo responsável.']
   ];
 
@@ -26,7 +26,7 @@ export default function Configuracoes() {
     <div className="grid grid--2">{closingRule.map(([label, value, sub]) => <Tile key={label} label={label} value={value} sub={sub} />)}</div>
     <div className="table">
       <div className="table-title"><div className="card-title">Valores de rematrícula {data?.campaign?.academic_year}</div><div className="card-sub">A tabela abaixo é aplicada automaticamente conforme a data de fechamento.</div></div>
-      <div className="table-head cols-pricing"><div>Série</div><div>Turno</div><div>Até 31/10 · valor 2026</div><div>A partir de 01/11 · valor 2027</div><div>Valor vigente hoje</div></div>
+      <div className="table-head cols-pricing"><div>Série</div><div>Turno</div><div>Até 06/11 · valor 2026</div><div>A partir de 07/11 · valor 2027</div><div>Valor vigente hoje</div></div>
       {(data?.offerings || []).map((item) => <div className="table-row cols-pricing" style={{ cursor: 'default' }} key={item.offering_id}><div className="cell-strong">{item.grade_name}</div><div className="cell">{formatShifts(item.shifts)}</div><div className="cell">{money(item.early_amount_cents)}</div><div className="cell">{money(item.amount_cents)}</div><div className="cell-strong" style={{ color: 'var(--navy)' }}>{money(item.current_amount_cents)}</div></div>)}
     </div>
     <div className="card"><div className="card-title">Condições de pagamento</div><div className="grid grid--2" style={{ marginTop: 16 }}>{paymentRules.map(([label, value, sub]) => <Tile key={label} label={label} value={value} sub={sub} />)}</div></div>

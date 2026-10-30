@@ -68,7 +68,7 @@ function inviteMessage(invite, link) {
     for (const s of students) {
       let price = s.amount_cents ? money(s.amount_cents) : '';
       if (price && s.early_until && s.table_amount_cents > s.amount_cents) {
-        price += ` (valor de outubro, garantido até ${formatDate(s.early_until)}; depois, ${money(s.table_amount_cents)})`;
+        price += ` (valor promocional, garantido até ${formatDate(s.early_until)}; depois, ${money(s.table_amount_cents)})`;
       }
       lines.push(`📚 *${properName(s.name)}* — ${s.next_grade || 'série de ' + year}${price ? `: ${price}` : ''}`);
     }
