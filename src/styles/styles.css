@@ -1625,3 +1625,4 @@ a:hover { color: var(--navy); }
 /* Automação: troca entre contato e cobrança */
 .au-mode { margin-bottom: 2px; }
 .au-list-head .chip-row.au-gap { margin-top: 10px; }
+.au-code { word-break: break-all; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }

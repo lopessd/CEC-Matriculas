@@ -367,13 +367,14 @@ const BILLING_BLOCK = {
   tirada_pela_equipe: 'Tiradas pela equipe',
   sem_telefone: 'Sem telefone no cadastro',
   pediu_para_sair: 'Pediram para não receber mensagens',
-  sem_boleto: 'Boleto sem PDF ou linha digitável',
+  sem_boleto: 'Boleto sem linha digitável',
+  sem_link: 'Cobrança sem link de pagamento',
   sem_pix: 'Pix sem código'
 };
 
 const BILLING_HINT = {
-  cobranca_boleto: 'Vai com o PDF do boleto anexo. Use {{responsavel}}, {{alunos}}, {{parcela}}, {{valor}}, {{vencimento}} (vira "amanhã, 10/11" ou "hoje, 10/11"), {{linha}} e {{ajuste}}.',
-  cobranca_pix: 'Pagamento à vista no Pix. Use {{pix}} para o copia e cola, além das mesmas variáveis do boleto.',
+  cobranca_boleto: 'Vai com o link de pagamento do Asaas ({{link}}). Logo depois sai uma 2ª mensagem só com a linha digitável. Use {{responsavel}}, {{alunos}}, {{parcela}}, {{valor}}, {{vencimento}} (vira "amanhã, 10/11" ou "hoje, 10/11"), {{link}} e {{ajuste}}.',
+  cobranca_pix: 'Pagamento à vista no Pix, com o link ({{link}}). Logo depois sai uma 2ª mensagem só com o Pix copia e cola.',
   cobranca_ajuste_boleto: 'Entra no lugar de {{ajuste}} só para quem não escolheu a forma no site (a escola deixou no boleto).',
   cobranca_ajuste_pix: 'Entra no lugar de {{ajuste}} só para quem não escolheu a forma no site (a escola deixou no Pix).'
 };
@@ -484,7 +485,8 @@ function BillingList({ data, onSkip, onTest }) {
           {open === c.charge_id ? (
             <div className="au-preview">
               <blockquote className="cmodal-quote">{c.body}</blockquote>
-              {c.has_pdf ? <p className="meta">📎 Vai com o PDF do boleto anexo. <a href={c.media_url} target="_blank" rel="noreferrer">Abrir o boleto</a></p> : null}
+              {c.code ? <><p className="meta">Cerca de 1 minuto depois, sozinho para copiar:</p><blockquote className="cmodal-quote au-code">{c.code}</blockquote></> : null}
+              {c.link ? <p className="meta"><a href={c.link} target="_blank" rel="noreferrer">Abrir a página de pagamento</a></p> : null}
               <div className="au-row-actions">
                 <button type="button" className="btn" onClick={() => onTest(c)}>Testar no meu WhatsApp</button>
                 {c.block === 'tirada_pela_equipe'
@@ -514,7 +516,8 @@ function BillingRecent({ data }) {
               <tr key={r.queue_id} title={r.body || ''}>
                 <td>{fmt(r.at)}</td>
                 <td><button type="button" className="au-link" onClick={() => navigate(`/familias/${r.guardian_id}`)}>{proper(r.name)}</button><small>{phoneFmt(r.phone)}</small></td>
-                <td>{r.status === 'enviada' ? (r.replied ? <span className="au-ok">Respondeu</span> : 'Enviada') : r.status === 'falhou' ? <span className="au-error">Falhou{r.error ? `: ${r.error}` : ''}</span> : r.status}</td>
+                <td>{r.status === 'enviada' ? (r.replied ? <span className="au-ok">Respondeu</span> : 'Enviada') : r.status === 'falhou' ? <span className="au-error">Falhou{r.error ? `: ${r.error}` : ''}</span> : r.status}
+                  {r.status === 'enviada' ? <small>{r.code_status === 'enviada' ? 'código enviado' : r.code_status === 'falhou' ? 'código falhou' : 'código saindo…'}</small> : null}</td>
               </tr>
             ))}
           </tbody>
@@ -604,11 +607,12 @@ function Cobranca({ wa, onMode, modeBusy }) {
         <ConfirmModal title="Testar no seu WhatsApp" confirmLabel="Enviar teste" busy={busy}
           onConfirm={() => run(async () => {
             try { localStorage.setItem('cec_automation_test_phone', testPhone); } catch { /* sem armazenamento */ }
-            await automationAction('test', { phone: testPhone, text: modal.row.body, media_url: modal.row.media_url || undefined, doc_name: 'Boleto CEC (teste).pdf' });
+            await automationAction('test', { phone: testPhone, text: modal.row.body });
+            if (modal.row.code) await automationAction('test', { phone: testPhone, text: modal.row.code });
             return null;
           }, `Teste enviado para ${phoneFmt(testPhone)}.`)}
           onClose={() => setModal(null)}>
-          <p className="cmodal-text">A cobrança que {proper(modal.row.name)} receberia vai para o número abaixo, marcada como teste{modal.row.has_pdf ? ', com o PDF do boleto' : ''}. A família não recebe nada.</p>
+          <p className="cmodal-text">A cobrança que {proper(modal.row.name)} receberia vai para o número abaixo, marcada como teste, em duas mensagens (o texto e depois o código). A família não recebe nada.</p>
           <div className="cmodal-fields"><label>Seu WhatsApp<input className="control" value={testPhone} placeholder="(33) 99999-9999" onChange={(e) => setTestPhone(e.target.value)} /></label></div>
           <blockquote className="cmodal-quote">{modal.row.body}</blockquote>
         </ConfirmModal>
