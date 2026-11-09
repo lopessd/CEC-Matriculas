@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConfirmModal } from '../components/MessageComposer';
-import { automationAction, getAutomation, saveAutomation, setFollowupStatus } from '../services/data';
+import { automationAction, getAutomation, getBilling, saveAutomation, setAutomationMode, setFollowupStatus, skipBillingCharge } from '../services/data';
 
 /* Automação do contato de rematrícula. Quem decide quem recebe, quando e
    quantas por dia é o banco (`automation_candidates` e `automation_pick`); a
@@ -245,7 +245,7 @@ function Settings({ data, onSaved }) {
   );
 }
 
-function Templates({ data, onSaved }) {
+function Templates({ data, onSaved, hints = TEMPLATE_HINT, sub }) {
   const [bodies, setBodies] = useState(() => Object.fromEntries(data.templates.map((t) => [t.key, t.body])));
   const [state, setState] = useState({ busy: false, error: '', ok: '' });
   useEffect(() => { setBodies(Object.fromEntries(data.templates.map((t) => [t.key, t.body]))); }, [data.templates]);
@@ -261,12 +261,12 @@ function Templates({ data, onSaved }) {
   }
   return (
     <section className="card">
-      <div className="card-head"><div><div className="card-title">Textos</div><div className="card-sub">Use {'{{responsavel}}'}, {'{{alunos}}'}, {'{{prazo}}'}, {'{{etapa}}'} e {'{{link}}'}. Uma linha com --- separa variações: cada família recebe uma delas.</div></div></div>
+      <div className="card-head"><div><div className="card-title">Textos</div><div className="card-sub">{sub || <>Use {'{{responsavel}}'}, {'{{alunos}}'}, {'{{prazo}}'}, {'{{etapa}}'} e {'{{link}}'}. Uma linha com --- separa variações: cada família recebe uma delas.</>}</div></div></div>
       <div className="au-templates">
         {data.templates.map((t) => (
           <label key={t.key}>
             <span>{t.label} <small>· {data.by_template?.[t.key] || 0} na fila agora</small></span>
-            <small className="au-hint">{TEMPLATE_HINT[t.key]}</small>
+            <small className="au-hint">{hints[t.key]}</small>
             <textarea className="control" rows={Math.min(16, (bodies[t.key] || '').split('\n').length + 2)} value={bodies[t.key] || ''} onChange={(e) => setBodies((b) => ({ ...b, [t.key]: e.target.value }))} />
           </label>
         ))}
@@ -356,6 +356,267 @@ function Blocked({ data }) {
   );
 }
 
+/* ── Modo Cobrança ──────────────────────────────────────────────────────
+   Uma linha por cobrança do Asaas (irmãos já somam numa cobrança só) que
+   vence nos próximos dias. Boleto sai com o PDF anexo; Pix, com o copia e
+   cola. Quem decide a ordem é `billing_candidates()` no banco. */
+
+const BILLING_BLOCK = {
+  pode_receber: 'Vão receber',
+  ja_avisado: 'Já receberam esta cobrança',
+  tirada_pela_equipe: 'Tiradas pela equipe',
+  sem_telefone: 'Sem telefone no cadastro',
+  pediu_para_sair: 'Pediram para não receber mensagens',
+  sem_boleto: 'Boleto sem PDF ou linha digitável',
+  sem_pix: 'Pix sem código'
+};
+
+const BILLING_HINT = {
+  cobranca_boleto: 'Vai com o PDF do boleto anexo. Use {{responsavel}}, {{alunos}}, {{parcela}}, {{valor}}, {{vencimento}} (vira "amanhã, 10/11" ou "hoje, 10/11"), {{linha}} e {{ajuste}}.',
+  cobranca_pix: 'Pagamento à vista no Pix. Use {{pix}} para o copia e cola, além das mesmas variáveis do boleto.',
+  cobranca_ajuste_boleto: 'Entra no lugar de {{ajuste}} só para quem não escolheu a forma no site (a escola deixou no boleto).',
+  cobranca_ajuste_pix: 'Entra no lugar de {{ajuste}} só para quem não escolheu a forma no site (a escola deixou no Pix).'
+};
+
+const money = (cents) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const dayMonth = (iso) => (iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : '—');
+
+function ModeSwitch({ mode, busy, onChange }) {
+  return (
+    <div className="chip-row au-mode">
+      <button type="button" className={`chip${mode === 'contato' ? ' is-active' : ''}`} disabled={busy} onClick={() => onChange('contato')}>Contato de rematrícula</button>
+      <button type="button" className={`chip${mode === 'cobranca' ? ' is-active' : ''}`} disabled={busy} onClick={() => onChange('cobranca')}>Cobrança (boleto e Pix)</button>
+    </div>
+  );
+}
+
+function BillingStatus({ data, wa, onToggle, busy }) {
+  const s = data.settings;
+  const tick = s.last_tick_result || {};
+  const reason = tick.action === 'send' ? `Última cobrança saiu para ${proper(tick.guardian || '')}.` : tick.reason === 'ninguem_para_cobrar' ? 'Todas as cobranças da lista já saíram.' : TICK[tick.reason] || '';
+  const sent = data.recent.filter((r) => r.status === 'enviada');
+  const replied = sent.filter((r) => r.replied).length;
+  const left = data.eligible;
+  const perHour = Math.min(s.hourly_cap, Math.floor(3600 / ((s.min_gap_seconds + s.max_gap_seconds) / 2)));
+  return (
+    <section className={`card au-status${s.enabled ? ' is-on' : ''}`}>
+      <div className="au-status-main">
+        <span className="au-pill">{s.enabled ? 'Ligada · cobrança' : 'Desligada · cobrança'}</span>
+        <h2>{s.enabled ? 'Enviando as cobranças' : 'As cobranças estão paradas'}</h2>
+        <p>
+          {s.enabled
+            ? data.in_window
+              ? `${reason} ${s.next_send_after && new Date(s.next_send_after) > new Date() ? `Próxima a partir de ${fmt(s.next_send_after, { hour: '2-digit', minute: '2-digit' })}.` : ''}`
+              : 'Fora do horário de envio agora. Ela continua sozinha no próximo horário.'
+            : `Nada é enviado enquanto estiver desligada. ${left} cobranças estão prontas para sair.`}
+          {left ? ` No ritmo atual (cerca de ${perHour} por hora), faltam umas ${Math.ceil(left / Math.max(perHour, 1))} h de envio.` : ''}
+        </p>
+        {s.paused_reason ? <div className="notice"><span><strong>Parou sozinha.</strong> {s.paused_reason}</span></div> : null}
+        {wa && !wa.loading && (!wa.configured || !wa.connected) ? (
+          <div className="notice"><span>{!wa.configured ? 'O envio não está configurado: faltam UAZAPI_BASE_URL e UAZAPI_TOKEN nos segredos do Supabase.' : 'O WhatsApp da escola está desconectado na UAZAPI. Nada sai até reconectar.'}</span></div>
+        ) : null}
+      </div>
+      <div className="au-status-side">
+        <div className="au-num"><strong>{left}</strong><span>cobranças para enviar</span></div>
+        <div className="au-num"><strong>{data.counts.today}</strong><span>de {s.daily_cap} hoje · {data.counts.last_hour} na última hora</span></div>
+        <div className="au-num"><strong>{replied}</strong><span>de {sent.length} famílias responderam</span></div>
+        <button type="button" className={`btn ${s.enabled ? 'btn--danger' : 'btn--primary'} au-toggle`} disabled={busy} onClick={onToggle}>
+          {s.enabled ? 'Desligar agora' : 'Ligar as cobranças'}
+        </button>
+        <span className="meta">WhatsApp: {wa?.loading ? 'verificando…' : wa?.connected ? 'conectado' : wa?.configured ? 'desconectado' : 'sem configuração'}</span>
+      </div>
+    </section>
+  );
+}
+
+function BillingWindow({ data, onLeadDays, busy }) {
+  const [days, setDays] = useState(data.settings.billing_lead_days);
+  useEffect(() => { setDays(data.settings.billing_lead_days); }, [data.settings.billing_lead_days]);
+  const groups = useMemo(() => {
+    const map = new Map();
+    for (const c of data.candidates.filter((x) => !x.block)) {
+      const key = `${c.due_date}|${c.method}`;
+      const g = map.get(key) || { due: c.due_date, method: c.method, n: 0, cents: 0, escola: 0 };
+      g.n += 1; g.cents += Number(c.amount_cents || 0); if (c.school_chose) g.escola += 1;
+      map.set(key, g);
+    }
+    return [...map.values()].sort((a, b) => a.due.localeCompare(b.due));
+  }, [data.candidates]);
+  const until = new Date(`${data.today}T12:00:00-03:00`);
+  until.setDate(until.getDate() + Number(data.settings.billing_lead_days));
+  return (
+    <section className="card">
+      <div className="card-head"><div><div className="card-title">Quais vencimentos entram</div><div className="card-sub">Cobranças que vencem de hoje até {fmt(until, { day: '2-digit', month: '2-digit' })}. Cartão não entra: o Asaas debita sozinho.</div></div></div>
+      <div className="au-form">
+        <label>Mandar quantos dias antes do vencimento
+          <span className="au-range"><input className="control" type="number" min="0" max="45" value={days} onChange={(e) => setDays(e.target.value)} />
+            <button type="button" className="btn" disabled={busy || Number(days) === data.settings.billing_lead_days} onClick={() => onLeadDays(Number(days))}>Aplicar</button></span>
+        </label>
+      </div>
+      <div className="au-plan">
+        {groups.length ? groups.map((g) => (
+          <div key={`${g.due}${g.method}`}><strong>{g.n}</strong><span>{g.method === 'pix' ? 'Pix' : 'boletos'} de {dayMonth(g.due)} · {money(g.cents)}{g.escola ? ` · ${g.escola} com forma definida pela escola` : ''}</span></div>
+        )) : <div><strong>0</strong><span>cobranças nesse período</span></div>}
+      </div>
+    </section>
+  );
+}
+
+function BillingList({ data, onSkip, onTest }) {
+  const [open, setOpen] = useState(null);
+  const [filter, setFilter] = useState('pode_receber');
+  const rows = data.candidates.filter((c) => (c.block || 'pode_receber') === filter);
+  const entries = Object.entries(data.by_block || {}).sort((a, b) => (a[0] === 'pode_receber' ? -1 : b[0] === 'pode_receber' ? 1 : b[1] - a[1]));
+  return (
+    <section className="card card--flush">
+      <div className="au-list-head">
+        <div className="card-title">Quem vai ser avisado</div>
+        <div className="card-sub">Saem nesta ordem, do vencimento mais próximo para o mais distante. Clique na família para ver a mensagem.</div>
+        <div className="chip-row au-gap">{entries.map(([k, n]) => <button key={k} type="button" className={`chip${filter === k ? ' is-active' : ''}`} onClick={() => setFilter(k)}>{BILLING_BLOCK[k] || k} · {n}</button>)}</div>
+      </div>
+      {!rows.length ? <p className="au-empty">Ninguém aqui.</p> : rows.map((c, i) => (
+        <div key={c.charge_id} className="au-row">
+          <button type="button" className="au-row-main" onClick={() => setOpen(open === c.charge_id ? null : c.charge_id)}>
+            <strong>{filter === 'pode_receber' ? `${i + 1}. ` : ''}{proper(c.name)}</strong>
+            <span>{c.students} · {phoneFmt(c.phone)}</span>
+            <span className="au-tag">{c.method === 'pix' ? 'Pix' : 'Boleto'} · {c.parcela} · {money(c.amount_cents)} · vence {dayMonth(c.due_date)}{c.school_chose ? ' · forma definida pela escola' : ''}</span>
+          </button>
+          {open === c.charge_id ? (
+            <div className="au-preview">
+              <blockquote className="cmodal-quote">{c.body}</blockquote>
+              {c.has_pdf ? <p className="meta">📎 Vai com o PDF do boleto anexo. <a href={c.media_url} target="_blank" rel="noreferrer">Abrir o boleto</a></p> : null}
+              <div className="au-row-actions">
+                <button type="button" className="btn" onClick={() => onTest(c)}>Testar no meu WhatsApp</button>
+                {c.block === 'tirada_pela_equipe'
+                  ? <button type="button" className="btn" onClick={() => onSkip(c, false)}>Voltar para a lista</button>
+                  : !c.block ? <button type="button" className="btn btn--danger" onClick={() => onSkip(c, true)}>Não enviar esta cobrança</button> : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function BillingRecent({ data }) {
+  const navigate = useNavigate();
+  const rows = data.recent.filter((r) => r.status !== 'cancelada');
+  if (!rows.length) return null;
+  return (
+    <section className="card card--flush">
+      <div className="au-list-head"><div className="card-title">Cobranças enviadas</div><div className="card-sub">{rows.filter((r) => r.status === 'enviada').length} enviadas{rows.some((r) => r.status === 'falhou') ? ` · ${rows.filter((r) => r.status === 'falhou').length} falharam` : ''}</div></div>
+      <div className="au-table-wrap">
+        <table className="au-table">
+          <thead><tr><th>Quando</th><th>Família</th><th>Situação</th></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.queue_id} title={r.body || ''}>
+                <td>{fmt(r.at)}</td>
+                <td><button type="button" className="au-link" onClick={() => navigate(`/familias/${r.guardian_id}`)}>{proper(r.name)}</button><small>{phoneFmt(r.phone)}</small></td>
+                <td>{r.status === 'enviada' ? (r.replied ? <span className="au-ok">Respondeu</span> : 'Enviada') : r.status === 'falhou' ? <span className="au-error">Falhou{r.error ? `: ${r.error}` : ''}</span> : r.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function Cobranca({ wa, onMode, modeBusy }) {
+  const [state, setState] = useState({ loading: true, error: '', data: null });
+  const [modal, setModal] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const [testPhone, setTestPhone] = useState(() => { try { return localStorage.getItem('cec_automation_test_phone') || ''; } catch { return ''; } });
+
+  const load = useCallback(() => getBilling()
+    .then((data) => setState({ loading: false, error: '', data }))
+    .catch((error) => setState((s) => ({ ...s, loading: false, error: error.message || String(error) }))), []);
+  useEffect(() => { load(); const id = setInterval(load, 60000); return () => clearInterval(id); }, [load]);
+  const data = state.data;
+
+  const saveShared = useCallback(async (payload) => { await saveAutomation(payload); await load(); }, [load]);
+  const templatesData = useMemo(() => (data ? {
+    templates: data.templates.map((t) => ({ ...t })),
+    by_template: data.candidates.filter((c) => !c.block).reduce((acc, c) => {
+      const k = c.method === 'pix' ? 'cobranca_pix' : 'cobranca_boleto';
+      acc[k] = (acc[k] || 0) + 1;
+      if (c.school_chose) acc[`cobranca_ajuste_${c.method === 'pix' ? 'pix' : 'boleto'}`] = (acc[`cobranca_ajuste_${c.method === 'pix' ? 'pix' : 'boleto'}`] || 0) + 1;
+      return acc;
+    }, {})
+  } : null), [data]);
+
+  async function run(fn, ok) {
+    setBusy(true);
+    try { const fresh = await fn(); if (fresh?.settings) setState({ loading: false, error: '', data: fresh }); else await load(); setModal(null); if (ok) setNote(ok); }
+    catch (err) { setNote(err.message || 'Não foi possível.'); }
+    finally { setBusy(false); }
+  }
+
+  if (state.loading && !data) return <div className="kcol-empty">Carregando…</div>;
+  if (state.error && !data) return <div className="notice"><span>{state.error}</span></div>;
+  const first = data.candidates.filter((c) => !c.block).slice(0, 3);
+
+  return (
+    <div className="au-page">
+      <ModeSwitch mode="cobranca" busy={modeBusy || busy} onChange={onMode} />
+      <BillingStatus data={data} wa={wa} busy={busy} onToggle={() => setModal({ kind: 'toggle' })} />
+      {note ? <div className="notice notice--soft au-note"><p>{note}</p><button type="button" className="btn btn--ghost" onClick={() => setNote('')}>Fechar</button></div> : null}
+      <BillingWindow data={data} busy={busy} onLeadDays={(d) => run(() => setAutomationMode('cobranca', d))} />
+      <BillingList data={data} onSkip={(row, skip) => setModal({ kind: 'skip', row, skip })} onTest={(row) => setModal({ kind: 'test', row })} />
+      <BillingRecent data={data} />
+      <Settings data={data} onSaved={saveShared} />
+      <Templates data={templatesData} onSaved={saveShared} hints={BILLING_HINT}
+        sub="Uma linha com --- separa variações: cada família recebe uma delas." />
+
+      {modal?.kind === 'toggle' ? (
+        <ConfirmModal
+          title={data.settings.enabled ? 'Desligar as cobranças?' : 'Ligar as cobranças?'}
+          confirmLabel={data.settings.enabled ? 'Desligar' : 'Ligar e começar a enviar'}
+          danger={data.settings.enabled}
+          busy={busy}
+          onConfirm={() => run(async () => { await saveAutomation({ settings: fromForm(toForm(data.settings), !data.settings.enabled) }); return null; })}
+          onClose={() => setModal(null)}
+        >
+          {data.settings.enabled ? (
+            <p className="cmodal-text">Nenhuma cobrança nova sai depois disso. A IA segue respondendo quem escrever.</p>
+          ) : (
+            <>
+              <p className="cmodal-text">As cobranças vão sair do WhatsApp da escola, uma família por vez: até <strong>{data.settings.hourly_cap} por hora</strong> e <strong>{data.settings.daily_cap} por dia</strong>, com {Math.round(data.settings.min_gap_seconds / 60)} a {Math.round(data.settings.max_gap_seconds / 60)} minutos entre uma e outra, só em {data.settings.windows}. São <strong>{data.eligible} cobranças</strong>. As primeiras:</p>
+              <ul className="cmodal-list">{first.map((c) => <li key={c.charge_id}><strong>{proper(c.name)}</strong> <span>{c.students} · {money(c.amount_cents)} · {dayMonth(c.due_date)}</span></li>)}</ul>
+              {first[0] ? <blockquote className="cmodal-quote">{first[0].body}</blockquote> : null}
+              {wa && !wa.loading && !wa.connected ? <div className="notice"><span>O WhatsApp aparece desconectado agora. Nada sai até reconectar.</span></div> : null}
+            </>
+          )}
+        </ConfirmModal>
+      ) : null}
+      {modal?.kind === 'skip' ? (
+        <ConfirmModal title={modal.skip ? 'Não enviar esta cobrança?' : 'Voltar para a lista?'} confirmLabel={modal.skip ? 'Tirar da lista' : 'Voltar'} danger={modal.skip} busy={busy}
+          onConfirm={() => run(() => skipBillingCharge(modal.row.charge_id, modal.skip))} onClose={() => setModal(null)}>
+          <p className="cmodal-text">{modal.skip
+            ? <>A cobrança de <strong>{proper(modal.row.name)}</strong> com vencimento em {dayMonth(modal.row.due_date)} não vai ser enviada pela automação. As próximas parcelas da família continuam entrando normalmente.</>
+            : <>A cobrança de <strong>{proper(modal.row.name)}</strong> volta para a lista de envio.</>}</p>
+        </ConfirmModal>
+      ) : null}
+      {modal?.kind === 'test' ? (
+        <ConfirmModal title="Testar no seu WhatsApp" confirmLabel="Enviar teste" busy={busy}
+          onConfirm={() => run(async () => {
+            try { localStorage.setItem('cec_automation_test_phone', testPhone); } catch { /* sem armazenamento */ }
+            await automationAction('test', { phone: testPhone, text: modal.row.body, media_url: modal.row.media_url || undefined, doc_name: 'Boleto CEC (teste).pdf' });
+            return null;
+          }, `Teste enviado para ${phoneFmt(testPhone)}.`)}
+          onClose={() => setModal(null)}>
+          <p className="cmodal-text">A cobrança que {proper(modal.row.name)} receberia vai para o número abaixo, marcada como teste{modal.row.has_pdf ? ', com o PDF do boleto' : ''}. A família não recebe nada.</p>
+          <div className="cmodal-fields"><label>Seu WhatsApp<input className="control" value={testPhone} placeholder="(33) 99999-9999" onChange={(e) => setTestPhone(e.target.value)} /></label></div>
+          <blockquote className="cmodal-quote">{modal.row.body}</blockquote>
+        </ConfirmModal>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Automacao() {
   const [state, setState] = useState({ loading: true, error: '', data: null });
   const [wa, setWa] = useState({ loading: true });
@@ -401,12 +662,22 @@ export default function Automacao() {
   }
 
   const sample = useMemo(() => data?.next?.slice(0, 3) || [], [data]);
+  const [modeBusy, setModeBusy] = useState(false);
+  async function changeMode(mode) {
+    if (mode === (data?.settings?.mode || 'contato')) return;
+    setModeBusy(true);
+    try { await setAutomationMode(mode); await load(); }
+    catch (err) { setNote(err.message || 'Não foi possível trocar o modo.'); }
+    finally { setModeBusy(false); }
+  }
 
   if (state.loading && !data) return <div className="kcol-empty">Carregando…</div>;
   if (state.error && !data) return <div className="notice"><span>{state.error}</span></div>;
+  if (data.settings.mode === 'cobranca') return <Cobranca wa={wa} onMode={changeMode} modeBusy={modeBusy} />;
 
   return (
     <div className="au-page">
+      <ModeSwitch mode="contato" busy={modeBusy} onChange={changeMode} />
       <Status data={data} wa={wa} busy={busy} onToggle={() => setModal({ kind: 'toggle' })} />
       {note ? <div className="notice notice--soft au-note"><p>{note}</p><button type="button" className="btn btn--ghost" onClick={() => setNote('')}>Fechar</button></div> : null}
       <Plan data={data} />

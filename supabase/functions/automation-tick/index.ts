@@ -64,6 +64,21 @@ async function sendText(api: { base: string; token: string }, number: string, te
   return String(result?.messageid || result?.id || result?.key?.id || "");
 }
 
+// Boleto da cobrança: vai como documento, com o texto na legenda.
+async function sendDocument(api: { base: string; token: string }, number: string, url: string, docName: string, caption: string, delay: number, trackId: string) {
+  const response = await fetch(`${api.base}/send/media`, {
+    method: "POST",
+    headers: { token: api.token, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      number, type: "document", file: url, docName, text: caption, delay, readchat: true,
+      track_source: QUEUE_TRACK_SOURCE, track_id: trackId,
+    }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(result?.error || result?.message || `UAZAPI respondeu ${response.status}`);
+  return String(result?.messageid || result?.id || result?.key?.id || "");
+}
+
 async function tick(supabase: SupabaseClient) {
   const api = uazapi();
   if (!api) {
@@ -81,9 +96,11 @@ async function tick(supabase: SupabaseClient) {
   if (pick?.action !== "send") return pick;
 
   try {
-    const providerId = await sendText(api, pick.number, pick.body, pick.delay_ms, pick.track_id);
+    const providerId = pick.media_url
+      ? await sendDocument(api, pick.number, pick.media_url, pick.doc_name || "Boleto CEC.pdf", pick.body, pick.delay_ms, pick.track_id)
+      : await sendText(api, pick.number, pick.body, pick.delay_ms, pick.track_id);
     await supabase.rpc("automation_result", { p_queue_id: pick.queue_id, p_ok: true, p_provider_id: providerId || null, p_error: null });
-    return { action: "sent", guardian: pick.guardian, template: pick.template, touch: pick.touch };
+    return { action: "sent", guardian: pick.guardian, template: pick.template, touch: pick.touch, charge_id: pick.charge_id };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await supabase.rpc("automation_result", { p_queue_id: pick.queue_id, p_ok: false, p_provider_id: null, p_error: message.slice(0, 500) });
@@ -112,8 +129,12 @@ async function staffAction(supabase: SupabaseClient, request: Request) {
     const text = String(body.text || "").trim();
     if (!text) return json({ error: "Sem texto para testar." }, 400);
     try {
-      const id = await sendText(api, number, `[TESTE da automação — esta mensagem iria para uma família]\n\n${text}`,
-        Math.min(9000, 2500 + text.length * 15), crypto.randomUUID());
+      const label = `[TESTE da automação — esta mensagem iria para uma família]\n\n${text}`;
+      const delay = Math.min(9000, 2500 + text.length * 15);
+      const mediaUrl = typeof body.media_url === "string" && /^https:\/\//.test(body.media_url) ? body.media_url : "";
+      const id = mediaUrl
+        ? await sendDocument(api, number, mediaUrl, String(body.doc_name || "Boleto CEC.pdf"), label, delay, crypto.randomUUID())
+        : await sendText(api, number, label, delay, crypto.randomUUID());
       return json({ ok: true, provider_message_id: id });
     } catch (err) {
       return json({ error: err instanceof Error ? err.message : String(err) }, 502);

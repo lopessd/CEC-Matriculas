@@ -93,6 +93,19 @@ export function saveAutomation({ settings = null, templates = null } = {}) {
   return supabase.rpc('staff_automation_save', { p_settings: settings, p_templates: templates });
 }
 
+/** Automação no modo Cobrança: uma linha por cobrança do Asaas que vence nos próximos dias. */
+export function getBilling() {
+  return supabase.rpc('staff_billing_overview', {});
+}
+
+export function setAutomationMode(mode, leadDays = null) {
+  return supabase.rpc('staff_automation_set_mode', { p_mode: mode, p_lead_days: leadDays });
+}
+
+export function skipBillingCharge(chargeId, skip = true) {
+  return supabase.rpc('staff_billing_skip', { p_charge_id: chargeId, p_skip: skip });
+}
+
 /** Edge Function automation-tick: `status` (UAZAPI conectada?) e `test` (manda o texto para um número da equipe). */
 export function automationAction(action, payload = {}) {
   return supabase.invokeFunction('automation-tick', { action, ...payload });

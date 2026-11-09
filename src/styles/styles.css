@@ -1621,3 +1621,7 @@ a:hover { color: var(--navy); }
   .au-row-main { grid-template-columns: 1fr; }
   .au-row-main .au-tag { grid-column: 1; grid-row: auto; justify-self: start; }
 }
+
+/* Automação: troca entre contato e cobrança */
+.au-mode { margin-bottom: 2px; }
+.au-list-head .chip-row.au-gap { margin-top: 10px; }
