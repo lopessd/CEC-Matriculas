@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConfirmModal } from '../components/MessageComposer';
-import { automationAction, getAutomation, getBilling, saveAutomation, setAutomationMode, setFollowupStatus, skipBillingCharge } from '../services/data';
+import { asaasAdmin, automationAction, getAutomation, getBilling, getInstallmentList, saveAutomation, setAutomationMode, setFollowupStatus, skipBillingCharge } from '../services/data';
 
 /* Automação do contato de rematrícula. Quem decide quem recebe, quando e
    quantas por dia é o banco (`automation_candidates` e `automation_pick`); a
@@ -464,6 +464,79 @@ function BillingWindow({ data, onLeadDays, busy }) {
   );
 }
 
+// Boletos vencidos: a equipe escolhe uma nova data e prorroga no Asaas
+// (asaas-admin `reschedule`, mesmo link, código novo). Depois disso a família
+// entra na lista acima com o modelo "Cobrança em atraso".
+function BillingOverdue({ today, onDone }) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState('');
+  const [picked, setPicked] = useState(() => new Set());
+  const [due, setDue] = useState('');
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState('');
+
+  const load = useCallback(() => getInstallmentList().then((list) => {
+    const map = new Map();
+    for (const r of list || []) {
+      if (r.status !== 'vencido' || !r.provider_charge_id || !['boleto', 'pix'].includes(r.method || 'boleto')) continue;
+      const g = map.get(r.provider_charge_id) || { id: r.provider_charge_id, name: r.guardian_name, students: [], cents: 0, due: r.due_date, method: r.method };
+      g.students.push(String(r.student_name || '').split(' ')[0]); g.cents += Number(r.amount_cents || 0);
+      map.set(r.provider_charge_id, g);
+    }
+    const out = [...map.values()].sort((a, b) => a.due.localeCompare(b.due) || String(a.name).localeCompare(String(b.name)));
+    setRows(out); setPicked(new Set(out.map((g) => g.id)));
+  }).catch((err) => setError(err.message || String(err))), []);
+  useEffect(() => { load(); }, [load]);
+
+  if (error) return <section className="card"><div className="notice"><span>{error}</span></div></section>;
+  if (!rows || !rows.length) return null;
+  const chosen = rows.filter((g) => picked.has(g.id));
+  const toggle = (id) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  async function apply() {
+    setBusy(true);
+    try {
+      const res = await asaasAdmin('reschedule', { due_date: due, payment_ids: chosen.map((g) => g.id) });
+      const bad = (res.results || []).filter((r) => !r.ok);
+      setResult(bad.length
+        ? `${(res.results || []).length - bad.length} prorrogadas. Não deu em ${bad.length}: ${bad.map((r) => `${r.payment_id} (${r.error})`).join('; ')}`
+        : `${(res.results || []).length} cobranças prorrogadas para ${dayMonth(due)}. Confira a lista acima antes de ligar.`);
+      setConfirm(false); await load(); onDone?.();
+    } catch (err) { setResult(err.message || 'Não foi possível prorrogar.'); setConfirm(false); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <section className="card">
+      <div className="card-head"><div><div className="card-title">Boletos vencidos ({rows.length})</div>
+        <div className="card-sub">Prorrogue o vencimento no Asaas: o link continua o mesmo e o código muda. Depois a família entra na lista com a mensagem de “Cobrança em atraso”.</div></div></div>
+      {result ? <div className="notice notice--soft au-note"><p>{result}</p><button type="button" className="btn btn--ghost" onClick={() => setResult('')}>Fechar</button></div> : null}
+      <ul className="au-list">
+        {rows.map((g) => (
+          <li key={g.id}><label className="au-check">
+            <input type="checkbox" checked={picked.has(g.id)} onChange={() => toggle(g.id)} />
+            <span><strong>{proper(g.name)}</strong> <span className="au-tag">{g.students.join(' e ')} · {money(g.cents)} · venceu {dayMonth(g.due)}</span></span>
+          </label></li>
+        ))}
+      </ul>
+      <div className="au-form">
+        <label>Nova data de vencimento
+          <span className="au-range"><input className="control" type="date" min={today} value={due} onChange={(e) => setDue(e.target.value)} />
+            <button type="button" className="btn btn--primary" disabled={busy || !due || !chosen.length} onClick={() => setConfirm(true)}>Prorrogar {chosen.length}</button></span>
+        </label>
+      </div>
+      {confirm ? (
+        <ConfirmModal title={`Prorrogar ${chosen.length} cobranças para ${dayMonth(due)}?`} confirmLabel="Prorrogar no Asaas" busy={busy}
+          onConfirm={apply} onClose={() => setConfirm(false)}>
+          <p className="cmodal-text">O vencimento muda no Asaas e no painel. Nenhuma mensagem sai agora: a cobrança em atraso só vai quando a automação estiver ligada.</p>
+          <ul className="cmodal-list">{chosen.map((g) => <li key={g.id}><strong>{proper(g.name)}</strong> <span>{money(g.cents)} · venceu {dayMonth(g.due)}</span></li>)}</ul>
+        </ConfirmModal>
+      ) : null}
+    </section>
+  );
+}
+
 function BillingList({ data, onSkip, onTest }) {
   const [open, setOpen] = useState(null);
   const [filter, setFilter] = useState('pode_receber');
@@ -570,6 +643,7 @@ function Cobranca({ wa, onMode, modeBusy }) {
       {note ? <div className="notice notice--soft au-note"><p>{note}</p><button type="button" className="btn btn--ghost" onClick={() => setNote('')}>Fechar</button></div> : null}
       <BillingWindow data={data} busy={busy} onLeadDays={(d) => run(() => setAutomationMode('cobranca', d))} />
       <BillingList data={data} onSkip={(row, skip) => setModal({ kind: 'skip', row, skip })} onTest={(row) => setModal({ kind: 'test', row })} />
+      <BillingOverdue today={data.today} onDone={load} />
       <BillingRecent data={data} />
       <Settings data={data} onSaved={saveShared} />
       <Templates data={templatesData} onSaved={saveShared} hints={BILLING_HINT}
