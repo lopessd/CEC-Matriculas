@@ -376,7 +376,8 @@ const BILLING_HINT = {
   cobranca_boleto: 'Vai com o link de pagamento do Asaas ({{link}}). Logo depois sai uma 2ª mensagem só com a linha digitável. Use {{responsavel}}, {{alunos}}, {{parcela}}, {{valor}}, {{vencimento}} (vira "amanhã, 10/11" ou "hoje, 10/11"), {{link}} e {{ajuste}}.',
   cobranca_pix: 'Pagamento à vista no Pix, com o link ({{link}}). Logo depois sai uma 2ª mensagem só com o Pix copia e cola.',
   cobranca_ajuste_boleto: 'Entra no lugar de {{ajuste}} só para quem não escolheu a forma no site (a escola deixou no boleto).',
-  cobranca_ajuste_pix: 'Entra no lugar de {{ajuste}} só para quem não escolheu a forma no site (a escola deixou no Pix).'
+  cobranca_ajuste_pix: 'Entra no lugar de {{ajuste}} só para quem não escolheu a forma no site (a escola deixou no Pix).',
+  cobranca_atraso: 'Para boleto vencido que a escola prorrogou: mesmo link, código novo na 2ª mensagem. Use {{vencimento_anterior}} (a data que venceu) e {{vencimento}} (a nova data), além de {{responsavel}}, {{alunos}}, {{parcela}}, {{valor}} e {{link}}.'
 };
 
 const money = (cents) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -480,7 +481,7 @@ function BillingList({ data, onSkip, onTest }) {
           <button type="button" className="au-row-main" onClick={() => setOpen(open === c.charge_id ? null : c.charge_id)}>
             <strong>{filter === 'pode_receber' ? `${i + 1}. ` : ''}{proper(c.name)}</strong>
             <span>{c.students} · {phoneFmt(c.phone)}</span>
-            <span className="au-tag">{c.method === 'pix' ? 'Pix' : 'Boleto'} · {c.parcela} · {money(c.amount_cents)} · vence {dayMonth(c.due_date)}{c.school_chose ? ' · forma definida pela escola' : ''}</span>
+            <span className="au-tag">{c.method === 'pix' ? 'Pix' : 'Boleto'} · {c.parcela} · {money(c.amount_cents)} · {c.rescheduled_from ? `venceu ${dayMonth(c.rescheduled_from)} · prorrogado para ${dayMonth(c.due_date)}` : `vence ${dayMonth(c.due_date)}`}{c.school_chose && !c.rescheduled_from ? ' · forma definida pela escola' : ''}</span>
           </button>
           {open === c.charge_id ? (
             <div className="au-preview">
@@ -544,9 +545,9 @@ function Cobranca({ wa, onMode, modeBusy }) {
   const templatesData = useMemo(() => (data ? {
     templates: data.templates.map((t) => ({ ...t })),
     by_template: data.candidates.filter((c) => !c.block).reduce((acc, c) => {
-      const k = c.method === 'pix' ? 'cobranca_pix' : 'cobranca_boleto';
+      const k = c.template_key || (c.method === 'pix' ? 'cobranca_pix' : 'cobranca_boleto');
       acc[k] = (acc[k] || 0) + 1;
-      if (c.school_chose) acc[`cobranca_ajuste_${c.method === 'pix' ? 'pix' : 'boleto'}`] = (acc[`cobranca_ajuste_${c.method === 'pix' ? 'pix' : 'boleto'}`] || 0) + 1;
+      if (c.school_chose && k !== 'cobranca_atraso') acc[`cobranca_ajuste_${c.method === 'pix' ? 'pix' : 'boleto'}`] = (acc[`cobranca_ajuste_${c.method === 'pix' ? 'pix' : 'boleto'}`] || 0) + 1;
       return acc;
     }, {})
   } : null), [data]);

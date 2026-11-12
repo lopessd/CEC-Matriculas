@@ -515,6 +515,63 @@ async function createCharges(asaas: Asaas, supabase: SupabaseClient, body: any, 
   return { ok: true, customer_id: customerId, charges: created };
 }
 
+// Prorroga o vencimento de cobranças em aberto (pendentes ou vencidas) no
+// Asaas e no painel. A cobrança continua a mesma (mesmo link); a linha
+// digitável muda com a data, então é buscada de novo. `rescheduled_from`
+// guarda o vencimento original para a cobrança de atraso saber o que dizer.
+async function reschedule(asaas: Asaas, supabase: SupabaseClient, body: any, actor: string | null) {
+  const due = String(body.due_date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) throw new UserError("Informe a nova data (AAAA-MM-DD)");
+  if (due < localToday()) throw new UserError("A nova data não pode ser no passado");
+  const paymentIds: string[] = [...new Set<string>((body.payment_ids || []).map(String))];
+  if (!paymentIds.length) throw new UserError("Informe as cobranças");
+  const results: any[] = [];
+  for (const paymentId of paymentIds) {
+    try {
+      const { data: rows, error } = await supabase.from("installments")
+        .select("id, enrollment_id, status, due_date, rescheduled_from")
+        .eq("provider_charge_id", paymentId).in("status", ["pendente", "vencido"]);
+      if (error) throw error;
+      if (!rows?.length) { results.push({ payment_id: paymentId, ok: false, error: "sem parcela em aberto ligada a esta cobrança" }); continue; }
+      const current = await asaas(`/payments/${paymentId}`);
+      if (current?.deleted) { results.push({ payment_id: paymentId, ok: false, error: "cobrança apagada no Asaas" }); continue; }
+      if (PAID.has(String(current?.status))) { results.push({ payment_id: paymentId, ok: false, error: `já paga no Asaas (${current.status})` }); continue; }
+      const payment = await asaas(`/payments/${paymentId}`, {
+        method: "POST",
+        body: JSON.stringify({ billingType: current.billingType, value: current.value, dueDate: due }),
+      });
+      const extra: Record<string, unknown> = {};
+      if (payment.billingType === "BOLETO") {
+        extra.boleto_line = await asaas(`/payments/${paymentId}/identificationField`).then((res) => res?.identificationField || null).catch(() => null);
+      }
+      if (payment.billingType === "BOLETO" || payment.billingType === "PIX") {
+        extra.pix_code = await asaas(`/payments/${paymentId}/pixQrCode`).then((res) => res?.payload || null).catch(() => null);
+      }
+      const now = new Date().toISOString();
+      for (const row of rows) {
+        const { error: dueError } = await supabase.from("installments")
+          .update({ due_date: due, rescheduled_from: row.rescheduled_from || row.due_date }).eq("id", row.id);
+        if (dueError) throw dueError;
+        await apply(supabase, row.id, {
+          status: "pendente", payment_url: payment.invoiceUrl || null, bank_slip_url: payment.bankSlipUrl || null,
+          asaas_status: payment.status || "PENDING", asaas_synced_at: now, ...extra,
+        }, "manual", actor, `Vencimento prorrogado de ${row.due_date} para ${due}`);
+      }
+      for (const enrollmentId of new Set(rows.map((row) => row.enrollment_id))) {
+        await supabase.from("enrollment_events").insert({
+          enrollment_id: enrollmentId, code: "DUE_DATE_EXTENDED", title: "Vencimento prorrogado",
+          body: `Cobrança ${paymentId}: de ${rows[0].due_date} para ${due}.`, actor: "equipe", actor_id: actor,
+          metadata: { provider_charge_id: paymentId, from: rows[0].due_date, to: due },
+        });
+      }
+      results.push({ payment_id: paymentId, ok: true, from: rows[0].due_date, to: due, status: payment.status, boleto_line: Boolean(extra.boleto_line) });
+    } catch (error) {
+      results.push({ payment_id: paymentId, ok: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { ok: results.every((item) => item.ok), results };
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return json({ error: "Método não suportado" }, 405);
@@ -524,13 +581,18 @@ Deno.serve(async (request) => {
   if (!supabaseUrl || !serviceRole) return json({ error: "Configuração interna ausente" }, 500);
   const supabase = createClient(supabaseUrl, serviceRole, { auth: { persistSession: false } });
 
-  // Só a equipe (perfil ativo).
+  // Só a equipe (perfil ativo) ou o próprio servidor (chave service_role,
+  // para rotinas e ajustes em lote feitos fora do painel).
   const jwt = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  const { data: auth } = await supabase.auth.getUser(jwt);
-  const actor = auth?.user?.id || null;
-  if (!actor) return json({ error: "Entre novamente no painel" }, 401);
-  const { data: profile } = await supabase.from("profiles").select("id").eq("id", actor).eq("active", true).maybeSingle();
-  if (!profile) return json({ error: "Apenas a equipe pode usar o Asaas pelo painel" }, 403);
+  const fromServer = jwt.length > 0 && jwt === serviceRole;
+  let actor: string | null = null;
+  if (!fromServer) {
+    const { data: auth } = await supabase.auth.getUser(jwt);
+    actor = auth?.user?.id || null;
+    if (!actor) return json({ error: "Entre novamente no painel" }, 401);
+    const { data: profile } = await supabase.from("profiles").select("id").eq("id", actor).eq("active", true).maybeSingle();
+    if (!profile) return json({ error: "Apenas a equipe pode usar o Asaas pelo painel" }, 403);
+  }
 
   const apiKey = Deno.env.get("ASAAS_API_KEY");
   const baseUrl = (Deno.env.get("ASAAS_BASE_URL") || "https://api.asaas.com/v3").replace(/\/$/, "");
@@ -555,6 +617,7 @@ Deno.serve(async (request) => {
     if (action === "statement") return json({ environment, ...await statement(asaas, body) });
     if (action === "customer") return json(await ensureCustomer(asaas, supabase, String(body.guardian_id || "")));
     if (action === "create_charges") return json(await createCharges(asaas, supabase, body, actor));
+    if (action === "reschedule") return json(await reschedule(asaas, supabase, body, actor));
     return json({ error: "Ação desconhecida" }, 400);
   } catch (error) {
     console.error(error);
